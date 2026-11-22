@@ -13,3 +13,5 @@ zxing-cpp>=2.3
 google-cloud-vision>=3.9,<4
 beautifulsoup4>=4.12
 pytest>=8
+python-dotenv>=1.0,<2
+urllib3>=2.3,<3

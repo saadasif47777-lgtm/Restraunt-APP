@@ -1,0 +1,8 @@
+import {useState} from 'react'
+import {ArrowUp,ArrowDown,Trash2,Plus} from 'lucide-react'
+import type {Draft} from './types'
+export default function CategoryEditor({draft,save}:{draft:Draft;save:(d:Draft)=>Promise<void>}){
+ const [rows,set]=useState(draft.categories.map(name=>({id:name,name}))),[error,fail]=useState('')
+ function move(i:number,delta:number){const next=[...rows];[next[i],next[i+delta]]=[next[i+delta],next[i]];set(next)}
+ return <form onSubmit={async e=>{e.preventDefault();try{const cats=rows.map(r=>r.name.trim());if(new Set(cats).size!==cats.length)throw Error('Category names must be unique.');const dishes=draft.dishes.map(d=>{const row=rows.find(r=>r.id===d.category);if(!row&&!d.archived)throw Error('Reassign active dishes before removing their category.');return {...d,category:row?.name.trim()||d.category}});await save({categories:cats,dishes})}catch(err){fail(String(err))}}}>{rows.map((r,i)=><div className="line" key={r.id}><input required aria-label="Category name" value={r.name} onChange={e=>set(rows.map((row,j)=>i===j?{...row,name:e.target.value}:row))}/><button type="button" disabled={i===0} aria-label="Move up" onClick={()=>move(i,-1)}><ArrowUp size={14}/></button><button type="button" disabled={i===rows.length-1} aria-label="Move down" onClick={()=>move(i,1)}><ArrowDown size={14}/></button><button type="button" aria-label="Archive category" onClick={()=>set(rows.filter(x=>x.id!==r.id))}><Trash2 size={14}/></button></div>)}<button type="button" onClick={()=>set([...rows,{id:crypto.randomUUID(),name:''}])}><Plus size={14}/>Add category</button>{error&&<p role="alert">{error}</p>}<button className="primary">Save categories</button></form>
+}

@@ -3,14 +3,16 @@ import ipaddress
 import os
 import re
 import socket
+import time
 from urllib.parse import urlsplit, urljoin
-import fitz
+import pymupdf as fitz
 import httpx
 import urllib3
 import zxingcpp
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Response
 from google.cloud import vision
+from google.auth.exceptions import DefaultCredentialsError
 from PIL import Image
 from sqlalchemy import select
 from .menu_routes import Db, User, authorize
@@ -21,7 +23,9 @@ LIMIT=8*1024*1024
 MAX_PAGES=12
 
 def fetch_public(url):
+    deadline=time.monotonic()+18
     for _ in range(4):
+        if time.monotonic()>deadline: raise ValueError("Menu fetch timed out. Upload a screenshot.")
         target=urlsplit(url)
         if target.scheme!="https" or not target.hostname or target.username or target.password or target.port not in (443,None):
             raise ValueError("Use a public HTTPS menu link or upload screenshots.")
@@ -36,9 +40,14 @@ def fetch_public(url):
             if r.status in (301,302,303,307,308):
                 url=urljoin(url,r.headers.get("location",""));continue
             if r.status!=200: raise ValueError("Menu unavailable or requires login. Upload screenshots instead.")
-            body=r.read(LIMIT+1,decode_content=False)
+            body=bytearray()
+            while len(body)<=LIMIT:
+                chunk=r.read1(min(65536,LIMIT+1-len(body)),decode_content=False)
+                if time.monotonic()>deadline: raise ValueError("Menu fetch timed out. Upload a screenshot.")
+                if not chunk:break
+                body.extend(chunk)
             if len(body)>LIMIT: raise ValueError("Menu exceeds 8 MB.")
-            return body,r.headers.get("Content-Type","")
+            return bytes(body),r.headers.get("Content-Type","")
     raise ValueError("Too many redirects. Upload screenshots instead.")
 
 def storage(method,path,body=None,mime=None):
@@ -111,7 +120,11 @@ def retry(branch:str,job_id:str,db:Db,user:User):
 def ocr(data):
     if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
         raise ValueError("Configure Google Cloud Vision credentials for scanned pages, or add dishes manually.")
-    result=vision.ImageAnnotatorClient().document_text_detection(image=vision.Image(content=data),timeout=30)
+    try:
+        client=vision.ImageAnnotatorClient()
+    except DefaultCredentialsError as exc:
+        raise ValueError("Google Cloud Vision credentials are unusable. Configure the worker or add dishes manually.") from exc
+    result=client.document_text_detection(image=vision.Image(content=data),timeout=30)
     if result.error.message: raise ValueError("Vision could not read this page. Retry or upload a clearer image.")
     annotation=result.full_text_annotation
     boxes=[{"text":"".join(s.text for s in w.symbols),"vertices":[[v.x,v.y] for v in w.bounding_box.vertices]}
@@ -131,6 +144,8 @@ def pages(source,skip):
         data,mime=fetch_public(url)
         if "html" in mime:
             soup=BeautifulSoup(data,"html.parser")
+            if soup.select_one('input[type="password"]'):
+                raise ValueError("This menu requires login. Upload a screenshot.")
             for tag in soup(["script","style","nav","footer","header"]):tag.decompose()
             if 0 not in skip: yield 0,soup.get_text("\n",strip=True),[]
             return

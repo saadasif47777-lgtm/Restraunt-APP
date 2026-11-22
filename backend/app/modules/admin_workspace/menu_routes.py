@@ -29,6 +29,7 @@ class Dish(Named):
     station: str = ""
     portions: list[Portion] = Field(min_length=1)
     modifiers: dict[str,list[Portion]] = {}
+    deal: str = ""
     spice: str = ""
     allergens: list[str] = []
     available: bool = True
@@ -43,7 +44,7 @@ class Draft(BaseModel):
         ids = [dish.id for dish in self.dishes]
         if len(set(ids)) != len(ids) or len(set(self.categories)) != len(self.categories):
             raise ValueError("Duplicate category or dish ID")
-        if any(d.category not in self.categories for d in self.dishes):
+        if any(not d.archived and d.category not in self.categories for d in self.dishes):
             raise ValueError("Choose an existing category")
         return self
 
@@ -91,7 +92,7 @@ def workspace(branch:str,db:Db,user:User):
     return dict(name=b.name,currency=b.currency,hours=b.hours,stations=b.stations,draft=b.draft,
                 revision=b.revision,live=bool(b.published),role=m.role,
                 tables=[dict(id=t.id,label=t.label) for t in db.scalars(select(DiningTable).where(DiningTable.branch==branch))],
-                staff=[dict(email=s.email,role=s.role) for s in db.scalars(select(Member).where(Member.branch==branch))])
+                staff=[dict(id=s.id,email=s.email,role=s.role) for s in db.scalars(select(Member).where(Member.branch==branch))])
 
 @router.put("/branches/{branch}/settings")
 def settings(branch:str,data:Settings,db:Db,user:User):
@@ -148,3 +149,24 @@ def public_menu(table_id:str,db:Db):
     b=db.get(Branch,t.branch)
     if not b.published: raise HTTPException(404,"Menu has not been published")
     return {**b.published,"restaurant":db.get(Restaurant,b.restaurant).name,"branch":b.name,"table":t.label}
+
+class StaffRole(BaseModel):
+    role: Literal["manager","waiter","cook","cashier"]
+
+@router.put("/branches/{branch}/staff/{member_id}")
+def change_role(branch:str,member_id:str,data:StaffRole,db:Db,user:User):
+    authorize(db,user,branch,True)
+    member=db.scalar(select(Member).where(Member.branch==branch,Member.id==member_id).with_for_update())
+    if not member: raise HTTPException(404,"Staff member not found")
+    if member.role=="owner": raise HTTPException(403,"Owner access is protected")
+    member.role=data.role
+    db.commit()
+    return {"role":member.role}
+
+@router.put("/branches/{branch}/restaurant")
+def rename_restaurant(branch:str,data:Named,db:Db,user:User):
+    authorize(db,user,branch,True)
+    r=db.get(Restaurant,db.get(Branch,branch).restaurant)
+    r.name=data.name
+    db.commit()
+    return {"name":r.name}
