@@ -135,3 +135,28 @@ test("development modules load and sample ordering stays in preview", async ({
   await page.getByText("Submit preview round").click();
   await expect(page.getByText("Round recorded in preview")).toBeVisible();
 });
+
+test("a branch API failure preserves the staff session and can be retried", async ({
+  page,
+}) => {
+  await page.route(
+    "**/branches",
+    (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "FUNCTION_INVOCATION_FAILED" } }),
+      }),
+    { times: 1 },
+  );
+  await page.goto("/");
+  await page.getByLabel("Email").fill("owner@example.invalid");
+  await page.getByLabel("Password").fill("browser test input");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "GET /branches returned HTTP 500 (FUNCTION_INVOCATION_FAILED)",
+  );
+  await expect(page.getByLabel("Password")).toHaveCount(0);
+  await page.getByRole("button", { name: "Retry workspace" }).click();
+  await expect(page.getByText("No dishes found.")).toBeVisible();
+});

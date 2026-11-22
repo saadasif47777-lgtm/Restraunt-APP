@@ -13,7 +13,7 @@ export default defineConfig({
     env: {
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:8011",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "browser-test-public-key",
-      NEXT_PUBLIC_API_URL: "http://127.0.0.1:8011",
+      NEXT_PUBLIC_API_URL: "http://127.0.0.1:8011/api",
     },
     reuseExistingServer: false,
   },
