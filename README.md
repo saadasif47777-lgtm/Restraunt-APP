@@ -93,3 +93,13 @@ Stop other Next.js processes using this checkout before running browser tests or
 The development run passed eight pytest cases on PostgreSQL 16 and two Chromium Playwright tests. The browser journey signed in through a test identity provider, created a branch and kitchen station, invited a waiter, imported a text PDF, corrected its price, and published it alongside a manually entered dish. It decoded the generated Table 5 QR image, opened its URL, and verified a subsequent price update. Layout checks used widths of 390, 768 and 1,366 pixels.
 
 Photo and scanned-PDF tests used deterministic Vision responses. A live Vision smoke attempt stopped with `DefaultCredentialsError` during credential initialization. Hosted Supabase sign-in, email delivery, private Storage, live OCR recognition, physical printing and a phone scan still need a connected restaurant project and device.
+
+## Deploy the web workspace on Vercel
+
+The root `vercel.json` declares two services. Set the Vercel project's **Root Directory** to the repository root and use the branch containing this configuration. The frontend uses `/api` on the same origin. Vercel routes those requests to FastAPI and removes the prefix. Both services use the project's environment settings. Only the three `NEXT_PUBLIC_` values are public.
+
+1. Download [the Vercel environment template](deploy/vercel/.env.example) and save a local copy as `.env`. Enter the same Supabase project URL in both URL fields, the publishable key, the server secret or legacy service-role key, and the transaction-pooler connection URI from **Connect**. URL-encode special characters in the database password. Keep the completed file private.
+2. In **Vercel → Project → Settings → Environment Variables**, import the file for **Production** and redeploy. Configure a separate Supabase project for isolated preview data if needed. Same-origin deployments do not require a custom CORS origin.
+3. In Supabase, set the Auth site URL and allowed redirects to your deployed frontend, create the private Storage bucket, and configure asymmetric JWT signing. Run the migrations and bootstrap the first owner once using the Windows commands above and a direct or session-pooler database connection.
+4. For imports, run one persistent `python -m app.worker` process on a worker host with the backend environment settings. Supply Google Vision credentials there for scanned images. The two Vercel web services handle HTTP requests. The worker consumes queued imports independently.
+5. Sign in, open the branch menu and publish a draft. Opening a generated table QR verifies that public reads reach the same backend. A signed-out GET to `/api/branches` should return an HTTP authentication error with a JSON body.
