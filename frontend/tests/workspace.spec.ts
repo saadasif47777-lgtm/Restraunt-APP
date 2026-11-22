@@ -1,0 +1,137 @@
+import jsQR from "jsqr";
+import { PNG } from "pngjs";
+import { test, expect } from "@playwright/test";
+test("owner publishes a private draft and updates the same table QR", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await page.getByLabel("Email").fill("owner@example.invalid");
+  await page.getByLabel("Password").fill("browser test input");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByText("No dishes found.")).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Create branch" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Cantt");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create branch" })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Kitchen stations" }).click();
+  await page.getByRole("button", { name: "Add station" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Curry");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Add station" })
+    .click();
+  await expect(page.getByText("Curry", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Staff members" }).click();
+  await page.getByRole("button", { name: "Invite staff" }).click();
+  await page.getByLabel("Email").fill("waiter@example.invalid");
+  await page.getByLabel("Branch role").selectOption("waiter");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Invite staff" })
+    .click();
+  await expect(page.getByText("waiter@example.invalid")).toBeVisible();
+  await page.getByRole("button", { name: "Tables & QR" }).click();
+  await page.getByRole("button", { name: "Add table" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Table 5");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Add table" })
+    .click();
+  await expect(page.getByAltText("Menu QR for Table 5")).toBeVisible();
+  const image = await page
+    .getByAltText("Menu QR for Table 5")
+    .getAttribute("src");
+  const png = PNG.sync.read(Buffer.from(image!.split(",")[1], "base64"));
+  const decoded = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+  expect(decoded).toBeTruthy();
+  await page.getByRole("button", { name: "Menu imports" }).click();
+  await page.locator("input[type=file]").setInputFiles({
+    name: "invalid.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("invalid image"),
+  });
+  await page.getByRole("button", { name: "Start import" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page
+    .locator("input[type=file]")
+    .setInputFiles("tests/fixtures/sample-menu.pdf");
+  await page.getByRole("button", { name: "Start import" }).click();
+  await page
+    .getByRole("button", { name: "Review additions" })
+    .click({ timeout: 15000 });
+  await page.getByLabel("Price", { exact: true }).fill("200");
+  await page.getByRole("button", { name: "Apply to draft" }).click();
+  await expect(
+    page.getByRole("button", { name: "Apply to draft" }),
+  ).not.toBeVisible();
+  await page.getByRole("button", { name: "Menu manager", exact: true }).click();
+  await page.getByRole("button", { name: "Add dish" }).click();
+  await page.getByLabel("Dish name").fill("Chicken Karahi");
+  await page.getByLabel("Price", { exact: true }).fill("950");
+  await page.getByRole("button", { name: "Save dish" }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Preview menu" }).click();
+  await expect(
+    page.getByRole("dialog").getByText("PKR 200", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const url = decoded!.data;
+  const publicPage = await page.context().newPage();
+  await publicPage.goto(url);
+  await expect(
+    publicPage.getByText("Menu has not been published"),
+  ).toBeVisible();
+  async function publish() {
+    await page.getByRole("button", { name: "Publish menu" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Publish menu" })
+      .click();
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+  }
+  await publish();
+  await publicPage.reload();
+  await expect(publicPage.getByText("Main · Table 5")).toBeVisible();
+  await expect(publicPage.getByText("PKR 950", { exact: true })).toBeVisible();
+  await expect(publicPage.getByText("PKR 200", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Chicken Karahi" }).first().click();
+  await page.getByLabel("Price", { exact: true }).fill("990");
+  await page.getByRole("button", { name: "Save dish" }).click();
+  await publish();
+  await publicPage.reload();
+  await expect(publicPage.getByText("PKR 990", { exact: true })).toBeVisible();
+  for (const width of [390, 768, 1366]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+  }
+});
+test("development modules load and sample ordering stays in preview", async ({
+  page,
+}) => {
+  for (const module of [
+    "waiter-floor",
+    "kitchen-display",
+    "billing",
+    "guest-tracker",
+    "reports",
+    "guest-experience",
+    "table-ordering",
+  ]) {
+    await page.goto("/preview/" + module);
+    await expect(
+      page.getByText("Development preview", { exact: true }),
+    ).toBeVisible();
+  }
+  await page.getByText("Join sample visit").click();
+  await page.getByText("Submit preview round").click();
+  await expect(page.getByText("Round recorded in preview")).toBeVisible();
+});

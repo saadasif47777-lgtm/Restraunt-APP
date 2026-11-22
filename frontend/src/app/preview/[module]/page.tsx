@@ -1,0 +1,24 @@
+import { notFound } from "next/navigation";
+const screens = {
+  "table-ordering": () =>
+    import("@/modules/table-ordering/TableOrderingScreen"),
+  "waiter-floor": () => import("@/modules/waiter-floor/WaiterFloorScreen"),
+  "kitchen-display": () =>
+    import("@/modules/kitchen-display/KitchenDisplayScreen"),
+  "guest-tracker": () => import("@/modules/guest-tracker/GuestTrackerScreen"),
+  billing: () => import("@/modules/billing/BillingScreen"),
+  reports: () => import("@/modules/reports/ReportsScreen"),
+  "guest-experience": () =>
+    import("@/modules/guest-experience/GuestExperienceScreen"),
+};
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ module: string }>;
+}) {
+  if (process.env.NODE_ENV !== "development") notFound();
+  const { module } = await params;
+  if (!Object.hasOwn(screens, module)) notFound();
+  const { default: Screen } = await screens[module as keyof typeof screens]();
+  return <Screen />;
+}
