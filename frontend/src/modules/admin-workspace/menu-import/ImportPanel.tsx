@@ -155,7 +155,12 @@ export default function ImportPanel({
                 select(
                   j.pages
                     .flatMap((p) => p.rows)
-                    .filter((r) => !draft.dishes.some((d) => d.id === r.id))
+                    .filter(
+                      (r) =>
+                        !draft.dishes.some(
+                          (d) => d.id === r.id || d.import_rows?.includes(r.id),
+                        ),
+                    )
                     .map((r) => ({
                       ...blank(draft.categories[0] || "Imported"),
                       id: r.id,

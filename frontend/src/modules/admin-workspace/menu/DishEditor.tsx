@@ -73,12 +73,20 @@ export default function DishEditor({
   onSave: (d: Dish) => void;
 }) {
   const [d, set] = useState(initial);
+  const [allergens, setAllergens] = useState(initial.allergens.join(", "));
   const patch = (v: Partial<Dish>) => set({ ...d, ...v });
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (d.portions.length) onSave(d);
+        if (d.portions.length)
+          onSave({
+            ...d,
+            allergens: allergens
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          });
       }}
     >
       <label>
@@ -172,10 +180,8 @@ export default function DishEditor({
         <label>
           Confirmed allergens (comma separated)
           <input
-            value={d.allergens.join(",")}
-            onChange={(e) =>
-              patch({ allergens: e.target.value.split(",").filter(Boolean) })
-            }
+            value={allergens}
+            onChange={(e) => setAllergens(e.target.value)}
           />
         </label>
       </details>

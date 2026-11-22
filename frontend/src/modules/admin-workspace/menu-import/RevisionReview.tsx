@@ -34,6 +34,7 @@ export default function RevisionReview({
           );
         changes.set(existing.id, {
           ...existing,
+          import_rows: [...new Set([...(existing.import_rows || []), row.id])],
           station: row.station || existing.station,
           portions: [{ ...existing.portions[0], price: row.portions[0].price }],
         });

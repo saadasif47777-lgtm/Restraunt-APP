@@ -11,6 +11,7 @@ export type Dish = {
   spice: string;
   deal?: string;
   allergens: string[];
+  import_rows?: string[];
   available: boolean;
   archived: boolean;
 };

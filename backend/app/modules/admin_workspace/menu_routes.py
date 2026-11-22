@@ -39,6 +39,7 @@ class Dish(Named):
     deal: str = ""
     spice: str = ""
     allergens: list[str] = []
+    import_rows: list[str] = []
     available: bool = True
     archived: bool = False
 
