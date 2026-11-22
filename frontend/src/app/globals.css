@@ -527,10 +527,9 @@ h2 {
 .thead,
 .dishrow {
   display: grid;
-  grid-template-columns: minmax(180px, 2.5fr) minmax(85px, 0.85fr) minmax(
-      80px,
-      0.75fr
-    ) minmax(88px, 0.8fr) 23px;
+  grid-template-columns:
+    minmax(180px, 2.5fr) minmax(85px, 0.85fr) minmax(80px, 0.75fr)
+    minmax(88px, 0.8fr) 23px;
   align-items: center;
   gap: 10px;
   padding: 0 21px;
@@ -1136,4 +1135,18 @@ iframe {
     color: #000;
     background: #fff;
   }
+}
+.floor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 18px;
+}
+.floor-grid button {
+  align-items: flex-start;
+  flex-direction: column;
+  padding: 16px;
+}
+.floor-grid b {
+  font-size: 20px;
 }
