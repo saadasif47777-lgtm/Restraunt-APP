@@ -17,4 +17,9 @@ def file_path(kind, branch, file_id):
 def write_file(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("xb") as stream:
-        stream.write(data)
+        try:
+            stream.write(data)
+        except OSError:
+            stream.close()
+            path.unlink(missing_ok=True)
+            raise

@@ -11,7 +11,6 @@ sandbox = tempfile.TemporaryDirectory(prefix="tablelane-tests-")
 os.environ["DATABASE_URL"] = "sqlite:///" + str(Path(sandbox.name) / "workspace.db")
 os.environ["UPLOAD_DIR"] = str(Path(sandbox.name) / "uploads")
 from app import bootstrap
-from app.core.db import engine
 from app.private import app
 from app.modules.admin_workspace.models import Branch, Restaurant
 from app.modules.admin_workspace.workspace import FIRST_BRANCH_ID

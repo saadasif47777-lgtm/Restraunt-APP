@@ -1,5 +1,4 @@
 from typing import Annotated
-import os
 import io
 from uuid import UUID
 from PIL import Image, ImageOps
@@ -10,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, StringConstraints, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from .workspace import RESTAURANT_ID, active_branch
+from .workspace import RESTAURANT_ID, FIRST_BRANCH_ID, active_branch, guest_origin
 from app.core.db import session
 from .models import Branch, Restaurant, DiningTable, uid
 
@@ -101,7 +100,7 @@ def branches(db: Db):
         for b in db.scalars(
             select(Branch)
             .where(Branch.restaurant_id == RESTAURANT_ID)
-            .order_by(Branch.name, Branch.id)
+            .order_by((Branch.id == FIRST_BRANCH_ID).desc(), Branch.name, Branch.id)
         )
     ]
 
@@ -126,7 +125,7 @@ def workspace(branch: str, db: Db):
         draft=b.draft,
         revision=b.revision,
         live=bool(b.published),
-        public_menu_base_url=os.getenv("PUBLIC_MENU_BASE_URL", "").strip().rstrip("/"),
+        public_menu_base_url=guest_origin(),
         tables=[
             dict(id=t.id, label=t.label)
             for t in db.scalars(
@@ -204,7 +203,7 @@ def public_menu(table_id: str, db: Db):
     t = db.get(DiningTable, table_id)
     if not t:
         raise HTTPException(404, "Table not found")
-    b = db.get(Branch, t.branch_id)
+    b = active_branch(db, t.branch_id)
     if not b.published:
         raise HTTPException(404, "Menu has not been published")
     return {
@@ -263,7 +262,7 @@ def private_photo(branch: str, image_id: UUID, db: Db):
 
 @public_router.get("/images/{branch}/{image_id}")
 def published_photo(branch: str, image_id: UUID, db: Db):
-    b = db.get(Branch, branch)
+    b = active_branch(db, branch)
     reference = f"/images/{branch}/{image_id}"
     if (
         not b

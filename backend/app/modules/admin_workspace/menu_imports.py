@@ -11,7 +11,8 @@ import zxingcpp
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Response
 from google.cloud import vision
-from google.auth.exceptions import DefaultCredentialsError
+from google.api_core.exceptions import GoogleAPICallError, PermissionDenied, Unauthenticated
+from google.auth.exceptions import GoogleAuthError
 from PIL import Image
 from sqlalchemy import select
 from .files import file_path, write_file
@@ -111,6 +112,7 @@ def submit(
     if bool(files) == bool(url) or len(files) > MAX_PAGES:
         raise HTTPException(422, "Select up to 12 files or enter a menu link.")
     sources = []
+    written = []
     count = 0
     try:
         for f in files:
@@ -131,14 +133,33 @@ def submit(
             path = file_path("originals", branch, source["file_id"])
             data = f.file.read(LIMIT)
             write_file(path, data)
+            written.append(path)
 
         if url:
             sources.append({"url": url})
-    except (ValueError, OSError, RuntimeError, Image.DecompressionBombError) as e:
-        raise HTTPException(422, str(e))
-    job = ImportJob(branch_id=branch, sources=sources)
-    db.add(job)
-    db.commit()
+        job = ImportJob(branch_id=branch, sources=sources)
+        db.add(job)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        for path in written:
+            path.unlink(missing_ok=True)
+        if isinstance(
+            exc,
+            (
+                ValueError,
+                Image.UnidentifiedImageError,
+                RuntimeError,
+                Image.DecompressionBombError,
+            ),
+        ):
+            raise HTTPException(
+                422,
+                "Unreadable menu file."
+                if isinstance(exc, Image.UnidentifiedImageError)
+                else str(exc),
+            ) from exc
+        raise
     return {"id": job.id}
 
 
@@ -198,13 +219,17 @@ def ocr(data):
         )
     try:
         client = vision.ImageAnnotatorClient()
-    except DefaultCredentialsError as exc:
+        result = client.document_text_detection(
+            image=vision.Image(content=data), timeout=30
+        )
+    except (GoogleAuthError, PermissionDenied, Unauthenticated) as exc:
         raise ValueError(
-            "Google Cloud Vision credentials are unusable. Configure the worker or add dishes manually."
+            "Check the worker's Google Cloud Vision credentials and enable the Vision API, or add dishes manually."
         ) from exc
-    result = client.document_text_detection(
-        image=vision.Image(content=data), timeout=30
-    )
+    except GoogleAPICallError as exc:
+        raise ValueError(
+            "Google Cloud Vision is unavailable. Check the provider, then retry this page or add dishes manually."
+        ) from exc
     if result.error.message:
         raise ValueError(
             "Vision could not read this page. Retry or upload a clearer image."

@@ -239,3 +239,36 @@ def test_ocr_setup_message(ctx, monkeypatch):
     assert (
         job["status"] == "failed" and "Google Cloud Vision credentials" in job["error"]
     )
+
+
+def test_concurrent_draft_changes(ctx):
+    from concurrent.futures import ThreadPoolExecutor
+
+    c, _, (branch, _) = ctx
+
+    def edit(name):
+        return c.put(
+            "/branches/" + branch + "/draft",
+            json={"revision": 0, "draft": {"categories": [name], "dishes": []}},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(edit, ["Mains", "Sides"])) == [200, 409]
+    assert c.get("/branches/" + branch).json()["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "https://guest.example:bad",
+        "file:///private",
+    ],
+)
+def test_unusable_qr_origins_are_not_printed(value, monkeypatch):
+    from app.modules.admin_workspace.workspace import guest_origin
+
+    monkeypatch.setenv("PUBLIC_MENU_BASE_URL", value)
+    assert guest_origin() == ""
