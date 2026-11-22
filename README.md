@@ -96,7 +96,7 @@ Photo and scanned-PDF tests used deterministic Vision responses. A live Vision s
 
 ## Deploy the web workspace on Vercel
 
-The root `vercel.json` declares two services. Set the Vercel project's **Root Directory** to the repository root and use the branch containing this configuration. The frontend uses `/api` on the same origin. Vercel routes those requests to FastAPI and removes the prefix. Both services use the project's environment settings. Only the three `NEXT_PUBLIC_` values are public.
+The root `vercel.json` declares two services. Set the Vercel project's **Root Directory** to the repository root and use the branch containing this configuration. The frontend uses `/api` on the same origin. Vercel forwards that path to FastAPI. FastAPI accepts both the public `/api` prefix and the existing direct backend paths. Both services use the project's environment settings. Only the three `NEXT_PUBLIC_` values are public.
 
 1. Download [the Vercel environment template](deploy/vercel/.env.example) and save a local copy as `.env`. Enter the same Supabase project URL in both URL fields, the publishable key, the server secret or legacy service-role key, and the transaction-pooler connection URI from **Connect**. URL-encode special characters in the database password. Keep the completed file private.
 2. In **Vercel → Project → Settings → Environment Variables**, import the file for **Production** and redeploy. Configure a separate Supabase project for isolated preview data if needed. Same-origin deployments do not require a custom CORS origin.

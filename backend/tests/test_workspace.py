@@ -191,3 +191,22 @@ def test_authentication_required(ctx):
     c, *_ = ctx
     app.dependency_overrides.pop(identity)
     assert c.get("/branches").status_code in (401, 403)
+
+
+def test_vercel_workspace_paths(ctx):
+    client, _, (branch, _), _ = ctx
+    expected = client.get("/branches")
+    response = client.get("/api/branches")
+    assert response.status_code == expected.status_code == 200
+    assert response.json() == expected.json()
+    assert response.json()[0]["id"] == branch
+    assert client.get(f"/api/branches/{branch}").json()["role"] == "owner"
+    assert client.get(f"/api/branches/{branch}/imports").json() == []
+
+
+def test_vercel_branch_route_requires_authentication():
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        assert client.get("/api/branches").status_code == 401
