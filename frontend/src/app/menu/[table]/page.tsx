@@ -4,5 +4,6 @@ export default async function Page({
 }: {
   params: Promise<{ table: string }>;
 }) {
-  return <Screen table={(await params).table} />;
+  const { table } = await params;
+  return <Screen key={table} table={table} />;
 }
