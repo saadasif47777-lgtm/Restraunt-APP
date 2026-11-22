@@ -160,3 +160,34 @@ def test_resume(ctx, monkeypatch):
         and len(calls) == 3
         and pages[0]["rows"][0]["id"] != pages[1]["rows"][0]["id"]
     )
+
+
+def test_invalid_uploads_and_roles(ctx):
+    c, db, (a, b), subject = ctx
+    base = "/branches/" + a
+    assert (
+        c.post(
+            base + "/imports", files={"files": ("bad.jpg", b"not an image")}
+        ).status_code
+        == 422
+    )
+    assert c.post(base + "/tables", json={"name": "  "}).status_code == 422
+    assert c.post(base + "/imports", data={"qr": "false"}).status_code == 422
+    assert (
+        c.post(
+            base + "/staff", json={"email": "new@example.org", "role": "owner"}
+        ).status_code
+        == 422
+    )
+    subject[0] = "manager"
+    assert c.put(base + "/restaurant", json={"name": "Changed"}).status_code == 403
+    assert c.put(base + "/staff/missing", json={"role": "manager"}).status_code == 403
+
+
+def test_authentication_required(ctx):
+    from app.main import app
+    from app.core.auth import identity
+
+    c, *_ = ctx
+    app.dependency_overrides.pop(identity)
+    assert c.get("/branches").status_code in (401, 403)

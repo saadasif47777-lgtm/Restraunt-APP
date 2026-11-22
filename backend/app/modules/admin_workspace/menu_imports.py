@@ -133,7 +133,7 @@ def submit(
     qr: bool = Form(False),
 ):
     authorize(db, user, branch)
-    if not (files or url) or len(files) > MAX_PAGES:
+    if bool(files) == bool(url) or len(files) > MAX_PAGES:
         raise HTTPException(422, "Select up to 12 files or enter a menu link.")
     sources = []
     count = 0
@@ -150,12 +150,17 @@ def submit(
                 count += 1
             if count > MAX_PAGES:
                 raise ValueError("Limit each import to 12 pages.")
-            path = branch + "/" + uid()
+            f.file.seek(0)
+            sources.append(dict(path=branch + "/" + uid(), mime=mime, qr=qr))
+        for f, source in zip(files, sources):
+            path = source["path"]
+            mime = source["mime"]
+            data = f.file.read(LIMIT)
             storage("POST", path, data, mime)
-            sources.append(dict(path=path, mime=mime, qr=qr))
+
         if url:
             sources.append({"url": url})
-    except (ValueError, OSError, RuntimeError) as e:
+    except (ValueError, OSError, RuntimeError, Image.DecompressionBombError) as e:
         raise HTTPException(422, str(e))
     job = ImportJob(branch=branch, sources=sources)
     db.add(job)
