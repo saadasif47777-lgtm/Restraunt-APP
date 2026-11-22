@@ -16,7 +16,11 @@ export default async function Page({
 }: {
   params: Promise<{ module: string }>;
 }) {
-  if (process.env.NODE_ENV !== "development") notFound();
+  if (
+    process.env.NODE_ENV !== "development" ||
+    process.env.WORKSPACE_MODE !== "private"
+  )
+    notFound();
   const { module } = await params;
   if (!Object.hasOwn(screens, module)) notFound();
   const { default: Screen } = await screens[module as keyof typeof screens]();

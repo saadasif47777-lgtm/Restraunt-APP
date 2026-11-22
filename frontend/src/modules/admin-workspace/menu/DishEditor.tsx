@@ -1,3 +1,4 @@
+import { api, photoUrl } from "../api";
 import { useState } from "react";
 import type { Dish, Portion } from "./types";
 export function Prices({
@@ -63,23 +64,27 @@ export function Prices({
 }
 export default function DishEditor({
   initial,
+  branch,
   categories,
   stations,
   onSave,
 }: {
   initial: Dish;
+  branch: string;
   categories: string[];
   stations: string[];
   onSave: (d: Dish) => void;
 }) {
   const [d, set] = useState(initial);
   const [allergens, setAllergens] = useState(initial.allergens.join(", "));
-  const patch = (v: Partial<Dish>) => set({ ...d, ...v });
+  const [uploading, wait] = useState(false),
+    [error, fail] = useState("");
+  const patch = (v: Partial<Dish>) => set((current) => ({ ...current, ...v }));
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (d.portions.length)
+        if (!uploading && d.portions.length)
           onSave({
             ...d,
             allergens: allergens
@@ -157,12 +162,47 @@ export default function DishEditor({
           Add modifier group
         </button>
         <label>
-          Photo URL
+          Dish photo
           <input
-            value={d.photo}
-            onChange={(e) => patch({ photo: e.target.value })}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={uploading}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const form = new FormData();
+              form.append("file", file);
+              wait(true);
+              fail("");
+              try {
+                const result = await api(
+                  "/branches/" + branch + "/photos",
+                  "POST",
+                  form,
+                );
+                patch({ photo: result.photo });
+              } catch (error) {
+                fail(String(error));
+              } finally {
+                wait(false);
+              }
+            }}
           />
         </label>
+        {d.photo && (
+          <>
+            <img
+              width={120}
+              src={photoUrl(d.photo, true)}
+              alt="Draft dish photo"
+            />
+            <button type="button" onClick={() => patch({ photo: "" })}>
+              Remove photo
+            </button>
+          </>
+        )}
+        {uploading && <p>Uploading photo…</p>}
+        {error && <p role="alert">{error}</p>}
         <label>
           Deal details
           <input
@@ -193,7 +233,7 @@ export default function DishEditor({
         />{" "}
         Available
       </label>
-      <button className="primary" disabled={!d.portions.length}>
+      <button className="primary" disabled={uploading || !d.portions.length}>
         Save dish
       </button>
     </form>

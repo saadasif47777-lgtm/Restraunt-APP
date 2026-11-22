@@ -3,21 +3,28 @@ import { useEffect, useRef, useState } from "react";
 export default function TableQR({
   id,
   label,
-  preview,
+  publicBase,
 }: {
   id: string;
   label: string;
-  preview: boolean;
+  publicBase: string;
 }) {
   const [src, set] = useState("");
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!preview)
-      QRCode.toDataURL(location.origin + "/menu/" + id, {
+    let current = true;
+    set("");
+    if (publicBase)
+      QRCode.toDataURL(publicBase + "/menu/" + encodeURIComponent(id), {
         width: 384,
         margin: 4,
-      }).then(set);
-  }, [id, preview]);
+      }).then((value) => {
+        if (current) set(value);
+      });
+    return () => {
+      current = false;
+    };
+  }, [id, publicBase]);
   function print() {
     card.current?.classList.add("print-table");
     window.print();
@@ -33,7 +40,9 @@ export default function TableQR({
         </>
       ) : (
         <small>
-          {preview ? "Sign in to print a live table QR." : "Generating QR…"}
+          {publicBase
+            ? "Generating QR…"
+            : "Set PUBLIC_MENU_BASE_URL to the guest site’s phone-reachable address before printing."}
         </small>
       )}
     </div>

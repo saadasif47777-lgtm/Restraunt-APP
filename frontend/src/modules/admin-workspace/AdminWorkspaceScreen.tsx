@@ -16,7 +16,6 @@ import {
   Layers,
   LayoutGrid,
   List,
-  LogOut,
   MapPin,
   Menu,
   Plus,
@@ -27,17 +26,16 @@ import {
   SlidersHorizontal,
   Store,
   Upload,
-  Users,
   Utensils,
   X,
 } from "lucide-react";
-import { api, auth } from "./api";
+import { api, photoUrl } from "./api";
 import { blank, type Draft, type Dish, type Workspace } from "./menu/types";
 import CategoryEditor from "./menu/CategoryEditor";
 import DishEditor from "./menu/DishEditor";
 import ImportPanel from "./menu-import/ImportPanel";
 import BranchSettings from "./settings/BranchSettings";
-import StaffMembers from "./staff/StaffMembers";
+
 import KitchenStations from "./stations/KitchenStations";
 import TableQR from "./tables/TableQR";
 import { MenuView } from "../customer-menu/CustomerMenuScreen";
@@ -47,7 +45,6 @@ const links = [
   ["Menu imports", Upload],
   ["Tables & QR", QrCode],
   ["Kitchen stations", ChefHat],
-  ["Staff members", Users],
   ["Settings", Settings2],
 ] as const;
 const words: Record<string, string> = {
@@ -55,10 +52,9 @@ const words: Record<string, string> = {
   "Menu imports": "Bring existing menus into your editable draft.",
   "Tables & QR": "Create stable menu links for your dining tables.",
   "Kitchen stations": "Manage the stations that prepare your dishes.",
-  "Staff members": "Manage staff access for this branch.",
   Settings: "Update restaurant branches and operating details.",
 };
-type Branch = { id: string; name: string; restaurant: string; role: string };
+type Branch = { id: string; name: string; restaurant: string };
 function Brand() {
   return (
     <div className="brand">
@@ -74,9 +70,6 @@ export default function AdminWorkspaceScreen() {
     [branch, setBranch] = useState(""),
     [branches, setBranches] = useState<Branch[]>([]),
     [restaurant, setRestaurant] = useState(""),
-    [demo, setDemo] = useState(false),
-    [login, signIn] = useState(false),
-    [email, setEmail] = useState(""),
     [tab, setTab] = useState("Menu manager"),
     [modal, open] = useState(""),
     [dish, edit] = useState<Dish>(),
@@ -97,47 +90,26 @@ export default function AdminWorkspaceScreen() {
   }, [modal]);
   async function load(id: string) {
     const value = await api("/branches/" + id);
+    sessionStorage.setItem("tablelane.branch", id);
     setBranch(id);
     setW(value);
   }
   async function initialize() {
-    if (auth) {
-      const session = (await auth.auth.getSession()).data.session;
-      if (session) {
-        setEmail(session.user.email || "Staff");
-        const list: Branch[] = await api("/branches");
-        setBranches(list);
-        if (!list.length) throw Error("No owner or manager branch assigned.");
-        setRestaurant(list[0].restaurant);
-        await load(list[0].id);
-        signIn(false);
-        return;
-      }
-    }
-    if (dev && !auth) {
-      const { sample } = await import("./menu/fixtures");
-      setDemo(true);
-      setRestaurant("Saffron House");
-      setW(
-        JSON.parse(localStorage.getItem("tablelane.sample") || "null") ||
-          sample,
+    const list: Branch[] = await api("/branches");
+    if (!list.length)
+      throw Error(
+        "Initialize the private test workspace using python -m app.bootstrap.",
       );
-      return;
-    }
-    setEmail("");
-    signIn(true);
+    setBranches(list);
+    const selected = sessionStorage.getItem("tablelane.branch");
+    const first = list.find((b) => b.id === selected) || list[0];
+    setRestaurant(first.restaurant);
+    await load(first.id);
   }
   useEffect(() => {
-    initialize().catch((e) => {
-      note(e.message);
-      signIn(true);
-    });
+    initialize().catch((e) => note(e.message));
   }, []);
   const base = "/branches/" + branch;
-  function update(value: Workspace) {
-    setW(value);
-    if (demo) localStorage.setItem("tablelane.sample", JSON.stringify(value));
-  }
   async function action(fn: () => Promise<void>) {
     note("");
     wait(true);
@@ -151,12 +123,10 @@ export default function AdminWorkspaceScreen() {
   }
   async function save(draft: Draft) {
     if (!w) return;
-    let revision = w.revision + 1;
-    if (!demo)
-      revision = (
-        await api(base + "/draft", "PUT", { draft, revision: w.revision })
-      ).revision;
-    update({ ...w, draft, revision });
+    const revision = (
+      await api(base + "/draft", "PUT", { draft, revision: w.revision })
+    ).revision;
+    setW({ ...w, draft, revision });
     open("");
     note("Draft saved.");
   }
@@ -166,77 +136,20 @@ export default function AdminWorkspaceScreen() {
     note("");
     open("");
   }
-  async function leaveWorkspace() {
-    const result = await auth?.auth.signOut();
-    if (result?.error) throw result.error;
-    setW(undefined);
-    setDemo(false);
-    setEmail("");
-    open("");
-    signIn(true);
-  }
-  if (login && email)
-    return (
-      <main className="auth">
-        <Brand />
-        <h1>Opening your workspace</h1>
-        <p>Signed in as {email}</p>
-        {msg && <p role="alert">{msg}</p>}
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() => action(initialize)}
-        >
-          Retry workspace
-        </button>
-        <button disabled={busy} onClick={() => action(leaveWorkspace)}>
-          Sign out
-        </button>
-      </main>
-    );
-  if (login)
-    return (
-      <main className="auth">
-        <Brand />
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const data = new FormData(e.currentTarget);
-            action(async () => {
-              if (!auth)
-                throw Error(
-                  "Configure Supabase to sign in to a live workspace.",
-                );
-              const r = await auth.auth.signInWithPassword({
-                email: String(data.get("email")),
-                password: String(data.get("password")),
-              });
-              if (r.error) throw r.error;
-              await initialize();
-            });
-          }}
-        >
-          <h1>Staff sign-in</h1>
-          <label>
-            Email
-            <input name="email" type="email" required />
-          </label>
-          <label>
-            Password
-            <input name="password" type="password" required />
-          </label>
-          <button className="primary" disabled={busy}>
-            Sign in
-          </button>
-          {msg && <p role="alert">{msg}</p>}
-        </form>
-      </main>
-    );
   if (!w)
     return (
       <main className="auth">
         <Brand />
-        <p>Loading workspace…</p>
+        {msg ? (
+          <>
+            <p role="alert">{msg}</p>
+            <button disabled={busy} onClick={() => action(initialize)}>
+              Retry workspace
+            </button>
+          </>
+        ) : (
+          <p>Loading workspace…</p>
+        )}
       </main>
     );
   const dishes = w.draft.dishes.filter((d) => !d.archived),
@@ -261,7 +174,8 @@ export default function AdminWorkspaceScreen() {
     const f = new FormData(e.currentTarget);
     await action(async () => {
       await fn(f);
-      if (!demo) await load(branch);
+      await load(branch);
+      setBranches(await api("/branches"));
       open("");
       note("Changes saved.");
     });
@@ -321,18 +235,6 @@ export default function AdminWorkspaceScreen() {
               Development previews
             </button>
           )}
-          <div className="profile">
-            <span className="avatar">
-              {demo ? "AK" : email.slice(0, 2).toUpperCase()}
-            </span>
-            <div>
-              <b>{demo ? "Ayesha Khan" : email}</b>
-              <small>{demo ? "Demo workspace" : w.role}</small>
-            </div>
-            <button aria-label="Account" onClick={() => open("Account")}>
-              <ChevronsUpDown size={15} />
-            </button>
-          </div>
         </div>
       </aside>
       <div className="body">
@@ -398,13 +300,9 @@ export default function AdminWorkspaceScreen() {
                   </button>
                 </div>
                 <div className="heroPhoto">
-                  {demo || dishes.find((d) => d.photo) ? (
+                  {dishes.some((d) => d.photo) ? (
                     <img
-                      src={
-                        demo
-                          ? "/food/karahi.jpg"
-                          : dishes.find((d) => d.photo)?.photo
-                      }
+                      src={photoUrl(dishes.find((d) => d.photo)!.photo, true)}
                       alt="House menu specialty"
                     />
                   ) : (
@@ -532,7 +430,7 @@ export default function AdminWorkspaceScreen() {
                         }}
                       >
                         {d.photo ? (
-                          <img alt="" src={d.photo} />
+                          <img alt="" src={photoUrl(d.photo, true)} />
                         ) : (
                           <span className="noimage">
                             <Utensils />
@@ -622,12 +520,7 @@ export default function AdminWorkspaceScreen() {
           ) : (
             <section className="panel" key={branch}>
               {tab === "Menu imports" && (
-                <ImportPanel
-                  base={base}
-                  preview={demo}
-                  draft={w.draft}
-                  apply={save}
-                />
+                <ImportPanel base={base} draft={w.draft} apply={save} />
               )}
               {tab === "Tables & QR" && (
                 <>
@@ -636,7 +529,11 @@ export default function AdminWorkspaceScreen() {
                     Add table
                   </button>
                   {w.tables.map((t) => (
-                    <TableQR key={t.id} {...t} preview={demo} />
+                    <TableQR
+                      key={t.id}
+                      {...t}
+                      publicBase={w.public_menu_base_url}
+                    />
                   ))}
                 </>
               )}
@@ -644,18 +541,6 @@ export default function AdminWorkspaceScreen() {
                 <KitchenStations
                   stations={w.stations}
                   add={() => open("Add station")}
-                />
-              )}
-              {tab === "Staff members" && (
-                <StaffMembers
-                  w={w}
-                  assign={(id, role) =>
-                    action(async () => {
-                      await api(base + "/staff/" + id, "PUT", { role });
-                      await load(branch);
-                    })
-                  }
-                  invite={() => open("Invite staff")}
                 />
               )}
               {tab === "Settings" && (
@@ -672,8 +557,7 @@ export default function AdminWorkspaceScreen() {
                         currency: String(f.get("currency")),
                         stations: w.stations,
                       };
-                      if (demo) update({ ...w, ...v });
-                      else await api(base + "/settings", "PUT", v);
+                      await api(base + "/settings", "PUT", v);
                     }, e)
                   }
                 />
@@ -692,6 +576,7 @@ export default function AdminWorkspaceScreen() {
         {msg && <p role="status">{msg}</p>}
         {["Add dish", "Edit dish"].includes(modal) && dish && (
           <DishEditor
+            branch={branch}
             initial={dish}
             categories={w.draft.categories}
             stations={w.stations}
@@ -748,6 +633,7 @@ export default function AdminWorkspaceScreen() {
         )}
         {modal === "Menu preview" && (
           <MenuView
+            privatePreview
             menu={{
               ...w.draft,
               restaurant,
@@ -759,11 +645,7 @@ export default function AdminWorkspaceScreen() {
         )}
         {modal === "Publish menu" && (
           <>
-            <p>
-              {demo
-                ? "Preview publication in this demo workspace."
-                : "Update all table menus with this draft."}
-            </p>
+            <p>Update all table menus with this draft.</p>
             <div className="record">
               {dishes.length} dishes · {w.draft.categories.length} categories
             </div>
@@ -772,98 +654,65 @@ export default function AdminWorkspaceScreen() {
               disabled={busy}
               onClick={() =>
                 action(async () => {
-                  if (!demo)
-                    await api(base + "/publish", "POST", {
-                      revision: w.revision,
-                    });
-                  else if (
-                    !dishes.length ||
-                    dishes.some((d) => d.portions.some((p) => p.price === null))
-                  )
-                    throw Error("Review missing prices before publishing");
-                  update({ ...w, live: true });
+                  await api(base + "/publish", "POST", {
+                    revision: w.revision,
+                  });
+                  setW({ ...w, live: true });
                   open("");
-                  note(
-                    demo
-                      ? "Publication preview complete."
-                      : "Menu published to all tables.",
-                  );
+                  note("Menu published to all tables.");
                 })
               }
             >
-              {demo ? "Test publication" : "Publish menu"}
+              Publish menu
             </button>
           </>
         )}
         {modal === "Select branch" &&
-          (demo ? (
-            <p>
-              {restaurant} · {w.name}
-            </p>
-          ) : (
-            branches.map((b) => (
-              <button
-                key={b.id}
-                onClick={() =>
-                  action(async () => {
-                    await load(b.id);
-                    setSearch("");
-                    setCat("All categories");
-                    setStatus("All statuses");
-                    paginate(1);
-                    setRestaurant(b.restaurant);
-                    open("");
-                  })
-                }
-              >
-                {b.restaurant} · {b.name}
-              </button>
-            ))
+          branches.map((b) => (
+            <button
+              key={b.id}
+              onClick={() =>
+                action(async () => {
+                  await load(b.id);
+                  setSearch("");
+                  setCat("All categories");
+                  setStatus("All statuses");
+                  paginate(1);
+                  setRestaurant(b.restaurant);
+                  open("");
+                })
+              }
+            >
+              {b.restaurant} · {b.name}
+            </button>
           ))}
         {[
           "Add table",
           "Add station",
-          "Invite staff",
           "Create branch",
           "Restaurant name",
         ].includes(modal) && (
           <form
             onSubmit={(e) =>
               setting(async (f) => {
-                const name = String(f.get("name")),
-                  role = String(f.get("role"));
+                const name = String(f.get("name"));
                 if (modal === "Restaurant name") {
-                  if (!demo) await api(base + "/restaurant", "PUT", { name });
+                  await api(base + "/restaurant", "PUT", { name });
                   setRestaurant(name);
                 }
                 if (modal === "Add table") {
-                  if (demo)
-                    update({
-                      ...w,
-                      tables: [
-                        ...w.tables,
-                        { id: crypto.randomUUID(), label: name },
-                      ],
-                    });
-                  else await api(base + "/tables", "POST", { name });
+                  await api(base + "/tables", "POST", { name });
                 }
                 if (modal === "Add station") {
                   const stations = [...new Set([...w.stations, name])];
-                  if (demo) update({ ...w, stations });
-                  else
-                    await api(base + "/settings", "PUT", {
-                      name: w.name,
-                      currency: w.currency,
-                      hours: w.hours,
-                      stations,
-                    });
-                }
-                if (modal === "Invite staff") {
-                  if (demo) throw Error("Sign in to send staff invitations.");
-                  await api(base + "/staff", "POST", { email: name, role });
+                  await api(base + "/settings", "PUT", {
+                    name: w.name,
+                    currency: w.currency,
+                    hours: w.hours,
+                    stations,
+                  });
                 }
                 if (modal === "Create branch") {
-                  if (demo) throw Error("Sign in to create a branch.");
                   await api(base + "/branches", "POST", { name });
                   setBranches(await api("/branches"));
                 }
@@ -871,23 +720,9 @@ export default function AdminWorkspaceScreen() {
             }
           >
             <label>
-              {modal === "Invite staff" ? "Email" : "Name"}
-              <input
-                required
-                type={modal === "Invite staff" ? "email" : "text"}
-                name="name"
-              />
+              Name
+              <input required name="name" />
             </label>
-            {modal === "Invite staff" && (
-              <label>
-                Branch role
-                <select name="role">
-                  {["manager", "waiter", "cook", "cashier"].map((r) => (
-                    <option key={r}>{r}</option>
-                  ))}
-                </select>
-              </label>
-            )}
             <button disabled={busy} className="primary">
               {modal}
             </button>
@@ -910,40 +745,6 @@ export default function AdminWorkspaceScreen() {
               </a>
             ))}
           </div>
-        )}
-        {modal === "Account" && !demo && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              action(async () => {
-                const r = await auth!.auth.updateUser({
-                  password: String(f.get("password")),
-                });
-                if (r.error) throw r.error;
-                open("");
-                note("Password updated.");
-              });
-            }}
-          >
-            <label>
-              New password
-              <input
-                name="password"
-                required
-                minLength={8}
-                autoComplete="new-password"
-                type="password"
-              />
-            </label>
-            <button>Set password</button>
-          </form>
-        )}
-        {modal === "Account" && (
-          <button onClick={() => action(leaveWorkspace)}>
-            <LogOut size={15} />
-            {demo ? "Open staff sign-in" : "Sign out"}
-          </button>
         )}
       </dialog>
     </div>
