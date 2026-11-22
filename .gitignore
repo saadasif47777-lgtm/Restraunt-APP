@@ -8,3 +8,5 @@ __pycache__/
 test-results/
 *.tsbuildinfo
 .vercel/
+backend/data/
+.next-guest/

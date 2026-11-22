@@ -1,7 +1,7 @@
 import RevisionReview from "./RevisionReview";
 import { useEffect, useState } from "react";
 import { Upload, Link as LinkIcon } from "lucide-react";
-import { api, apiBase, auth } from "../api";
+import { api, apiBase } from "../api";
 import { blank, type Draft, type Dish } from "../menu/types";
 type Row = { id: string; name: string; price: number | null };
 type Job = {
@@ -12,12 +12,10 @@ type Job = {
 };
 export default function ImportPanel({
   base,
-  preview,
   draft,
   apply,
 }: {
   base: string;
-  preview: boolean;
   draft: Draft;
   apply: (d: Draft) => Promise<void>;
 }) {
@@ -28,7 +26,6 @@ export default function ImportPanel({
     [review, select] = useState<Dish[]>([]),
     [original, show] = useState("");
   useEffect(() => {
-    if (preview) return;
     const refresh = () =>
       api(base + "/imports")
         .then(set)
@@ -36,7 +33,7 @@ export default function ImportPanel({
     refresh();
     const t = setInterval(refresh, 3500);
     return () => clearInterval(t);
-  }, [base, preview]);
+  }, [base]);
   useEffect(
     () => () => {
       if (original) URL.revokeObjectURL(original);
@@ -44,10 +41,7 @@ export default function ImportPanel({
     [original],
   );
   async function source(j: string, i: number) {
-    const token = (await auth?.auth.getSession())?.data.session?.access_token;
-    const r = await fetch(apiBase + base + "/imports/" + j + "/source/" + i, {
-      headers: { Authorization: "Bearer " + token },
-    });
+    const r = await fetch(apiBase + base + "/imports/" + j + "/source/" + i);
     if (!r.ok)
       throw Error(
         "No uploaded original for this link. Review the extracted text.",
@@ -73,12 +67,6 @@ export default function ImportPanel({
         onSubmit={async (e) => {
           e.preventDefault();
           fail("");
-          if (preview) {
-            fail(
-              "Sign in to a connected branch to process private menu files.",
-            );
-            return;
-          }
           const f = new FormData(e.currentTarget);
           if (mode === "QR image") f.append("qr", "true");
           wait(true);

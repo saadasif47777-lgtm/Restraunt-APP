@@ -1,14 +1,14 @@
+import { startServices, restartServices, closeServices } from "./services";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
 import { test, expect } from "@playwright/test";
-test("owner publishes a private draft and updates the same table QR", async ({
+test.beforeAll(startServices);
+test.afterAll(closeServices);
+test("manager publishes a private draft and updates the same table QR", async ({
   page,
   request,
 }) => {
   await page.goto("/");
-  await page.getByLabel("Email").fill("owner@example.invalid");
-  await page.getByLabel("Password").fill("browser test input");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByText("No dishes found.")).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Create branch" }).click();
@@ -26,15 +26,6 @@ test("owner publishes a private draft and updates the same table QR", async ({
     .getByRole("button", { name: "Add station" })
     .click();
   await expect(page.getByText("Curry", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Staff members" }).click();
-  await page.getByRole("button", { name: "Invite staff" }).click();
-  await page.getByLabel("Email").fill("waiter@example.invalid");
-  await page.getByLabel("Branch role").selectOption("waiter");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Invite staff" })
-    .click();
-  await expect(page.getByText("waiter@example.invalid")).toBeVisible();
   await page.getByRole("button", { name: "Tables & QR" }).click();
   await page.getByRole("button", { name: "Add table" }).click();
   await page.getByLabel("Name", { exact: true }).fill("Table 5");
@@ -56,7 +47,7 @@ test("owner publishes a private draft and updates the same table QR", async ({
     buffer: Buffer.from("invalid image"),
   });
   await page.getByRole("button", { name: "Start import" }).click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
   await page
     .locator("input[type=file]")
     .setInputFiles("tests/fixtures/sample-menu.pdf");
@@ -73,6 +64,10 @@ test("owner publishes a private draft and updates the same table QR", async ({
   await page.getByRole("button", { name: "Add dish" }).click();
   await page.getByLabel("Dish name").fill("Chicken Karahi");
   await page.getByLabel("Price", { exact: true }).fill("950");
+  await page.getByText("Modifiers, photos and dietary details").click();
+  await page.getByLabel("Dish photo").setInputFiles("tests/fixtures/karahi.jpg");
+  await expect(page.getByAltText("Draft dish photo")).toBeVisible();
+
   await page.getByRole("button", { name: "Save dish" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "Preview menu" }).click();
@@ -82,6 +77,8 @@ test("owner publishes a private draft and updates the same table QR", async ({
   await page.getByRole("button", { name: "Close", exact: true }).click();
   const url = decoded!.data;
   const publicPage = await page.context().newPage();
+  expect(new URL(url).origin).toBe("http://guest.tablelane.test:3012");
+  await publicPage.setViewportSize({ width: 390, height: 844 });
   await publicPage.goto(url);
   await expect(
     publicPage.getByText("Menu has not been published"),
@@ -102,6 +99,42 @@ test("owner publishes a private draft and updates the same table QR", async ({
   await page.getByRole("button", { name: "Chicken Karahi" }).first().click();
   await page.getByLabel("Price", { exact: true }).fill("990");
   await page.getByRole("button", { name: "Save dish" }).click();
+  await restartServices();
+  await publicPage.reload();
+  await expect(publicPage.getByText("PKR 950", { exact: true })).toBeVisible();
+  const photo = publicPage.locator("summary img").first();
+  await expect
+    .poll(() => photo.evaluate((el) => (el as HTMLImageElement).naturalWidth))
+    .toBeGreaterThan(0);
+  const imports = await (
+    await request.get("/api/branches/test-branch/imports")
+  ).json();
+  const original =
+    "/api/branches/test-branch/imports/" + imports[0].id + "/source/0";
+  expect((await request.get(original)).headers()["content-type"]).toContain(
+    "application/pdf",
+  );
+  for (const path of [
+    "/",
+    original,
+    "/api/branches",
+    "/preview/table-ordering",
+  ])
+    expect((await request.get("http://127.0.0.1:3012" + path)).status()).toBe(
+      404,
+    );
+  expect(
+    (
+      await request.post(
+        "http://127.0.0.1:3012/api/branches/test-branch/publish",
+        { data: { revision: 1 } },
+      )
+    ).status(),
+  ).toBe(404);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Chicken Karahi" }).first(),
+  ).toBeVisible();
   await publish();
   await publicPage.reload();
   await expect(publicPage.getByText("PKR 990", { exact: true })).toBeVisible();
@@ -134,29 +167,4 @@ test("development modules load and sample ordering stays in preview", async ({
   await page.getByText("Join sample visit").click();
   await page.getByText("Submit preview round").click();
   await expect(page.getByText("Round recorded in preview")).toBeVisible();
-});
-
-test("a branch API failure preserves the staff session and can be retried", async ({
-  page,
-}) => {
-  await page.route(
-    "**/branches",
-    (route) =>
-      route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ error: { code: "FUNCTION_INVOCATION_FAILED" } }),
-      }),
-    { times: 1 },
-  );
-  await page.goto("/");
-  await page.getByLabel("Email").fill("owner@example.invalid");
-  await page.getByLabel("Password").fill("browser test input");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText(
-    "GET /branches returned HTTP 500 (FUNCTION_INVOCATION_FAILED)",
-  );
-  await expect(page.getByLabel("Password")).toHaveCount(0);
-  await page.getByRole("button", { name: "Retry workspace" }).click();
-  await expect(page.getByText("No dishes found.")).toBeVisible();
 });

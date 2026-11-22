@@ -2,13 +2,16 @@ import time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.core.db import engine
-from app.modules.admin_workspace.models import ImportJob
+from app.modules.admin_workspace.models import Branch, ImportJob
+from app.modules.admin_workspace.workspace import RESTAURANT_ID
 from app.modules.admin_workspace.menu_imports import pages, candidates
 
 
 def work(db):
     j = db.scalar(
         select(ImportJob)
+        .join(Branch, Branch.id == ImportJob.branch_id)
+        .where(Branch.restaurant_id == RESTAURANT_ID)
         .where(ImportJob.status.in_(["queued", "processing"]))
         .order_by(ImportJob.id)
         .limit(1)

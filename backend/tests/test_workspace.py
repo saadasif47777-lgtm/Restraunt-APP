@@ -1,6 +1,5 @@
 import io
-from unittest.mock import Mock
-import fitz
+import pymupdf as fitz
 import pytest
 from PIL import Image
 import zxingcpp
@@ -9,7 +8,7 @@ from app.worker import work
 
 
 def test_publish_and_isolation(ctx, monkeypatch):
-    c, db, (a, b), subject = ctx
+    c, db, (a, b) = ctx
     base = "/branches/" + a
     for method, suffix, payload in [
         ("get", "", None),
@@ -20,29 +19,13 @@ def test_publish_and_isolation(ctx, monkeypatch):
     ]:
         assert (
             c.request(method, "/branches/" + b + suffix, json=payload).status_code
-            == 403
+            == 404
         )
     assert c.post(base + "/branches", json={"name": "Cantt"}).status_code == 200
     assert c.put(
         base + "/settings",
         json={"name": "Gulberg", "stations": ["Curry"], "currency": "PKR"},
     ).is_success
-    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test")
-    monkeypatch.setenv("SUPABASE_URL", "https://example.invalid")
-    monkeypatch.setattr(
-        "app.modules.admin_workspace.menu_routes.httpx.post",
-        lambda *a, **kw: Mock(is_error=False, json=lambda: {"id": "invited-user"}),
-    )
-    assert c.post(
-        base + "/staff", json={"email": "staff@example.org", "role": "waiter"}
-    ).is_success
-    subject[0] = "manager"
-    assert (
-        c.post(
-            base + "/staff", json={"email": "test@example.org", "role": "manager"}
-        ).status_code
-        == 403
-    )
     t = c.post(base + "/tables", json={"name": "Table 5"}).json()["id"]
     public = "/menu/" + t
     draft = {
@@ -88,15 +71,7 @@ def png(image):
 
 @pytest.mark.parametrize("source", ["photo", "text pdf", "scan", "qr"])
 def test_import_sources(ctx, source, monkeypatch):
-    c, db, (a, b), subject = ctx
-    storage = {}
-
-    def blob(method, path, body=None, mime=None):
-        if method == "POST":
-            storage[path] = body
-        return storage[path]
-
-    monkeypatch.setattr(imports, "storage", blob)
+    c, db, (a, b) = ctx
     text = "Chicken Karahi 950\nکباب"
     monkeypatch.setattr(imports, "ocr", lambda data: (text, []))
     image = png(Image.new("RGB", (100, 100), "white"))
@@ -129,14 +104,12 @@ def test_import_sources(ctx, source, monkeypatch):
     rows = job["pages"][0]["rows"]
     assert rows[0]["price"] == 950 and rows[1]["price"] is None
     assert c.get(base + "/" + jid + "/source/0").content == data
-    subject[0] = "ownerB"
-    assert c.get(base + "/" + jid + "/source/0").status_code == 403
+    assert c.get("/branches/" + b + "/imports/" + jid + "/source/0").status_code == 404
 
 
 def test_resume(ctx, monkeypatch):
-    c, db, (a, b), _ = ctx
+    c, db, (a, b) = ctx
     data = png(Image.new("RGB", (40, 40)))
-    monkeypatch.setattr(imports, "storage", lambda *args: data)
     calls = []
 
     def ocr(data):
@@ -163,7 +136,7 @@ def test_resume(ctx, monkeypatch):
 
 
 def test_invalid_uploads_and_roles(ctx):
-    c, db, (a, b), subject = ctx
+    c, db, (a, b) = ctx
     base = "/branches/" + a
     assert (
         c.post(
@@ -173,40 +146,129 @@ def test_invalid_uploads_and_roles(ctx):
     )
     assert c.post(base + "/tables", json={"name": "  "}).status_code == 422
     assert c.post(base + "/imports", data={"qr": "false"}).status_code == 422
+    assert c.get(base + "/staff").status_code == 404
     assert (
         c.post(
-            base + "/staff", json={"email": "new@example.org", "role": "owner"}
+            base + "/tables",
+            json={"name": "forbidden"},
+            headers={"Origin": "https://outside.invalid"},
         ).status_code
-        == 422
+        == 403
     )
-    subject[0] = "manager"
-    assert c.put(base + "/restaurant", json={"name": "Changed"}).status_code == 403
-    assert c.put(base + "/staff/missing", json={"role": "manager"}).status_code == 403
 
 
-def test_authentication_required(ctx):
-    from app.main import app
-    from app.core.auth import identity
-
-    c, *_ = ctx
-    app.dependency_overrides.pop(identity)
-    assert c.get("/branches").status_code in (401, 403)
-
-
-def test_vercel_workspace_paths(ctx):
-    client, _, (branch, _), _ = ctx
-    expected = client.get("/branches")
-    response = client.get("/api/branches")
-    assert response.status_code == expected.status_code == 200
-    assert response.json() == expected.json()
-    assert response.json()[0]["id"] == branch
-    assert client.get(f"/api/branches/{branch}").json()["role"] == "owner"
-    assert client.get(f"/api/branches/{branch}/imports").json() == []
-
-
-def test_vercel_branch_route_requires_authentication():
-    from app.main import app
+def test_published_files_persist_and_public_surface_is_read_only(ctx):
     from fastapi.testclient import TestClient
+    from app.main import app as public
+    from app.bootstrap import setup
 
-    with TestClient(app) as client:
-        assert client.get("/api/branches").status_code == 401
+    admin, db, (branch, other) = ctx
+    base = "/branches/" + branch
+    data = png(Image.new("RGB", (32, 32), "orange"))
+    image = admin.post(base + "/photos", files={"file": ("dish.png", data)}).json()[
+        "photo"
+    ]
+    original = admin.post(
+        base + "/imports", files={"files": ("private.png", data)}
+    ).json()["id"]
+    table = admin.post(base + "/tables", json={"name": "Table 5"}).json()["id"]
+    draft = {
+        "categories": ["Mains"],
+        "dishes": [
+            {
+                "id": "k",
+                "name": "Karahi",
+                "category": "Mains",
+                "photo": image,
+                "portions": [{"name": "Half", "price": 950}],
+            }
+        ],
+    }
+    with TestClient(public) as guest:
+        assert guest.get(image).status_code == 404
+        assert admin.put(
+            base + "/draft", json={"revision": 0, "draft": draft}
+        ).is_success
+        assert guest.get("/menu/" + table).status_code == 404
+        assert admin.post(base + "/publish", json={"revision": 1}).is_success
+        assert guest.get(image).headers["content-type"] == "image/jpeg"
+        for prefix in ("", "/api"):
+            assert guest.get(prefix + base).status_code == 404
+            assert (
+                guest.get(
+                    prefix + base + "/imports/" + original + "/source/0"
+                ).status_code
+                == 404
+            )
+            assert (
+                guest.post(prefix + base + "/publish", json={"revision": 1}).status_code
+                == 404
+            )
+            assert (
+                guest.put(
+                    prefix + base + "/draft", json={"revision": 1, "draft": draft}
+                ).status_code
+                == 404
+            )
+            assert guest.post(prefix + "/menu/" + table).status_code == 405
+        setup()
+        assert len(admin.get("/branches").json()) == 1
+        assert admin.get(base + "/imports/" + original + "/source/0").content == data
+        assert (
+            guest.get("/menu/" + table).json()["dishes"][0]["portions"][0]["price"]
+            == 950
+        )
+        draft["dishes"][0]["photo"] = ""
+        assert admin.put(
+            base + "/draft", json={"revision": 1, "draft": draft}
+        ).is_success
+        assert guest.get(image).status_code == 200
+        assert admin.post(base + "/publish", json={"revision": 2}).is_success
+        assert guest.get(image).status_code == 404
+
+
+def test_ocr_setup_message(ctx, monkeypatch):
+    c, db, (branch, _) = ctx
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    path = "/branches/" + branch + "/imports"
+    assert c.post(
+        path, files={"files": ("scan.png", png(Image.new("RGB", (10, 10))))}
+    ).is_success
+    work(db)
+    job = c.get(path).json()[0]
+    assert (
+        job["status"] == "failed" and "Google Cloud Vision credentials" in job["error"]
+    )
+
+
+def test_concurrent_draft_changes(ctx):
+    from concurrent.futures import ThreadPoolExecutor
+
+    c, _, (branch, _) = ctx
+
+    def edit(name):
+        return c.put(
+            "/branches/" + branch + "/draft",
+            json={"revision": 0, "draft": {"categories": [name], "dishes": []}},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(edit, ["Mains", "Sides"])) == [200, 409]
+    assert c.get("/branches/" + branch).json()["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "https://guest.example:bad",
+        "file:///private",
+    ],
+)
+def test_unusable_qr_origins_are_not_printed(value, monkeypatch):
+    from app.modules.admin_workspace.workspace import guest_origin
+
+    monkeypatch.setenv("PUBLIC_MENU_BASE_URL", value)
+    assert guest_origin() == ""

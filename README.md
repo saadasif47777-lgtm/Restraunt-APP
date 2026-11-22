@@ -1,105 +1,102 @@
-# Tablelane restaurant workspace
+# Tablelane · Admin Workspace testing milestone
 
-A restaurant manager can maintain a private branch menu, import an existing menu, publish a snapshot, and print a stable table QR. The public route serves the latest published snapshot. Ordering, service, billing and reporting are development previews.
+Open the private workspace to edit and publish a restaurant menu. Guests scan a stable table QR and see the last published version. This milestone uses SQLite, filesystem uploads and a single import worker. Staff accounts, invitations, permissions and the ordering backend are deferred.
 
-## Repository map
+## Windows setup
 
-| Path | Contents |
-| --- | --- |
-| `frontend/src/app` | Thin Next.js App Router entry points |
-| `frontend/src/modules/admin-workspace` | Branch settings, staff, tables, stations, menu editor and import review |
-| `frontend/src/modules/customer-menu` | Read-only published table menu |
-| `frontend/src/modules/{table-ordering,waiter-floor,kitchen-display,guest-tracker,billing,reports,guest-experience}` | Interactive screens and module-local typed sample data |
-| `backend/app/modules/admin_workspace` | Membership, drafts, versions, public table lookup and imports |
-| `backend/app/core` | Supabase JWT verification and SQLAlchemy connection |
-| `backend/app/worker.py` | Single resumable import worker |
-| `backend/migrations`, `backend/tests`, `frontend/tests` | Alembic, PostgreSQL integration tests and Playwright journeys |
-
-## Start the frontend on Windows
-
-Use Node 22.12+ and Python 3.12. Open the repository folder in VS Code. From a PowerShell terminal:
-
-```powershell
-cd frontend
-npm ci
-npm run dev
-```
-
-Open port 3000 in your browser. With both public Supabase variables empty, development mode opens a sample restaurant. Its draft persists in browser local storage. **Development previews** in the sidebar opens the seven future workspaces. Production requires staff authentication and returns 404 for preview routes.
-
-## Connect a real branch
-
-1. In Supabase, enable email authentication, configure the app site URL and invitation redirect URL, and use an asymmetric JWT signing key (ES256 or RS256). Create a confirmed owner account through the Supabase dashboard. Copy its user UUID.
-2. Create a **private** Storage bucket called `menu-originals`. Keep direct client access to originals disabled. FastAPI authorizes access by branch. Configure email delivery for staff invitations.
-3. Copy `backend/.env.example` to `backend/.env`. Set the Supabase project URL, server service-role key, PostgreSQL connection string and frontend origin. Use a trusted PostgreSQL role that can migrate tables and access them with RLS enabled. Use the direct or session-pooler connection. URL-encode special characters in the database password.
-4. Copy `frontend/.env.example` to `frontend/.env.local`. Set the project URL, public anon/publishable key and browser-reachable FastAPI URL. Restart Next.js after changing public variables.
-5. For photos and scanned PDFs, enable Google Cloud Vision and point `GOOGLE_APPLICATION_CREDENTIALS` at the server-side credential file outside the repository. Embedded-text PDFs and manual editing work independently of Vision.
-
-From the repository root:
+Use Python 3.12, Node 22.12+ and separate VS Code PowerShell terminals. Run the commands from the repository root unless a directory is specified.
 
 ```powershell
 cd backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python -m alembic upgrade head
-.\.venv\Scripts\python -m app.bootstrap --subject "<owner-user-uuid>" --email "owner@example.com" --restaurant "Saffron House" --branch "Gulberg"
-.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env
 ```
 
-Run bootstrap once per new restaurant. Subsequent branches and invitations are available within the workspace. Owners can invite staff to their branch. Managers can edit and publish menus. Waiter, cashier and cook roles are reserved for later live workflows.
+In `backend/.env`, use the values below. Replace the example IP with your computer's **Wi-Fi IPv4 address** from `ipconfig`. The phone must be on a network that can reach that address. For a hosted guest menu, use its HTTPS origin instead.
 
-In a separate terminal, start **one worker**:
+```dotenv
+DATABASE_URL=sqlite:///./data/tablelane.db
+UPLOAD_DIR=./data/uploads
+PUBLIC_MENU_BASE_URL=http://192.168.1.25:3001
+FRONTEND_ORIGIN=http://127.0.0.1:3000,http://localhost:3000
+ADMIN_HOSTS=localhost,127.0.0.1
+GOOGLE_APPLICATION_CREDENTIALS=
+```
+
+Paths are resolved relative to `backend/`. Setup runs Alembic and inserts the test restaurant and branch once. Stable IDs let you rename both and rerun setup while preserving menus, revisions, tables and files. Switch existing configuration files to the new examples when upgrading from the earlier hosted-database prototype. This starts a separate SQLite workspace.
+
+```powershell
+# In backend
+.\.venv\Scripts\python -m app.bootstrap
+# To apply subsequent migrations alone
+.\.venv\Scripts\python -m alembic upgrade head
+```
+
+Start the following three processes in **separate terminals**, each in `backend`:
+
+| Process | PowerShell command |
+| --- | --- |
+| Private management API | `.\.venv\Scripts\python -m uvicorn app.private:app --host 127.0.0.1 --port 8010` |
+| Guest read-only API | `.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8012` |
+| Single import worker | `.\.venv\Scripts\python -m app.worker` |
+
+Install the frontend and start the **guest frontend** in another terminal:
+
+```powershell
+cd frontend
+npm ci
+if (!(Test-Path .env.local)) { Copy-Item .env.example .env.local }
+$env:WORKSPACE_MODE = "public"
+$env:NEXT_DIST_DIR = ".next-guest"
+npm run build
+npx next start --hostname 0.0.0.0 --port 3001
+```
+
+Allow the guest port 3001 on the private LAN if Windows Firewall asks. In a **fresh terminal**, start the private frontend:
+
+```powershell
+cd frontend
+$env:WORKSPACE_MODE = "private"
+npm run dev
+```
+
+Open **http://127.0.0.1:3000** on the manager's computer. The workspace opens directly. `PRIVATE_API_ORIGIN` and `PUBLIC_API_ORIGIN` in the frontend example point to the two local APIs. Next.js forwards same-origin browser requests to those services. The guest frontend serves individual `/menu/<table-id>` links; its root returns 404.
+
+## Imports, photos and publication
+
+- Manual entry, photo/PDF upload and existing QR/HTTPS menu links feed the same draft. Text PDFs work without OCR credentials. For menu photos and scanned PDFs, enable Google Cloud Vision and set `GOOGLE_APPLICATION_CREDENTIALS` to the worker's credential file outside Git. Restart the worker after editing its environment. Failed pages report the setup dependency and can be retried. QR decoding uses zxing-cpp.
+- Original uploads live under `UPLOAD_DIR/<restaurant_id>/<branch_id>/originals/`. Only the private API serves originals. The dish editor accepts a separate customer-facing photo and writes a resized JPEG under `photos/`. Publishing approves the photos referenced by active dishes. The public image endpoint checks the current snapshot on every request.
+- SQLite serializes the revision check and menu write. Publishing an incomplete draft leaves the prior guest snapshot available. A price update keeps the existing table QR valid.
+
+## Hosted demo
+
+Run the APIs and worker on a persistent host with access to **the same SQLite file and upload directory on a local durable disk**. Use absolute volume paths for the database and `UPLOAD_DIR`. Back up both together. Keep files outside the web root. Replacing a container must remount that volume. Per-instance temporary filesystems, multiple independent replicas and network shares are unsuitable for this SQLite setup.
+
+Expose only the **public frontend** and `app.main:app` to the internet. Bind `app.private:app` and the private frontend to loopback, or restrict both with a private network/VPN firewall. The private API allows management without credentials. Host and Origin checks supplement the network restriction. If using a private reverse proxy, configure its host in `ADMIN_HOSTS` and the exact manager origin in `FRONTEND_ORIGIN`.
+
+For Vercel, the root `vercel.json` deploys only the Next.js frontend. Import `deploy/vercel/.env.example`, select `WORKSPACE_MODE=public`, set `PUBLIC_API_ORIGIN` to the persistent read-only API origin and redeploy. Use separate private and public frontend builds. Rewrites are generated at build time. Set the backend's `PUBLIC_MENU_BASE_URL` to the Vercel guest origin before printing. This version requires no Supabase keys. Existing hosted databases and storage are separate from the new test workspace.
+
+## Modules and tests
+
+- `frontend/src/app` contains thin routes. `frontend/src/modules/admin-workspace` contains settings, stations, tables, manual editing and import review. `customer-menu` renders published menus.
+- `table-ordering`, `waiter-floor`, `kitchen-display`, `guest-tracker`, `billing`, `reports` and `guest-experience` use typed local fixtures in the **private development** preview.
+- `backend/app/modules/admin_workspace` owns menu rules, the server-selected restaurant, original files and approved photos. `backend/app/core` owns the database configuration.
 
 ```powershell
 cd backend
-.\.venv\Scripts\python -m app.worker
-```
-
-The worker saves each completed page. Review the extracted text and uploaded original before applying dishes to the draft. Ambiguous prices remain blank. For revisions, compare proposed price changes and explicitly select removals. Multi-portion price changes require individual review in the editor. Supported links are public HTTPS HTML, images or PDFs. For login-protected or JavaScript-only menus, upload screenshots.
-
-## Run the tests
-
-Use a disposable PostgreSQL database ending in `_test`. From PowerShell in `backend`:
-
-```powershell
-$env:DATABASE_URL = "postgresql+psycopg://USER:PASSWORD@localhost:5432/tablelane_test"
-.\.venv\Scripts\python -m alembic upgrade head
 .\.venv\Scripts\python -m pytest -q
-$env:SUPABASE_URL = "http://127.0.0.1:8011"
-$env:FRONTEND_ORIGIN = "http://127.0.0.1:3011"
-.\.venv\Scripts\python -m uvicorn tests.browser_services:app --host 127.0.0.1 --port 8011
-```
-
-The loopback browser harness creates disposable owners, signs short-lived test JWTs, serves private test files and runs the import worker. It is for the test database only. In a second terminal, from `frontend`:
-
-```powershell
+cd ../frontend
 npx playwright install chromium
 npm test
-npm run build
 ```
 
-Stop other Next.js processes using this checkout before running browser tests or building. To use an installed Chromium executable, set `CHROMIUM_PATH`. Pytest exercises PostgreSQL, deterministic OCR results, PDF extraction and QR decoding. Browser tests exercise FastAPI and the database with a local Supabase-compatible provider. Hosted email delivery, hosted Storage, live Vision recognition and a physical phone scan require separate checks.
+Stop other Next.js processes using this checkout's build directories before running the browser tests. The browser runner uses its own disposable database, files, two frontends, two API processes and worker. It reruns setup, restarts the services, decodes a generated QR and opens it through the guest frontend at a mobile viewport. OCR responses are deterministic in automated tests. Live Vision recognition, physical printing and a real phone scan require the provider and device.
 
-## First branch walkthrough
+## Manager review
 
-1. Sign in as the owner and add a kitchen station. In **Tables & QR**, add **Table 5**.
-2. Open **Menu imports**, upload a menu PDF or photo, then choose **Review additions**. Compare the original, correct a price and apply the rows to the draft.
-3. In **Menu manager**, add Chicken Karahi, assign Curry, enter Half at PKR 950 and Full at PKR 1,700, and add Extra ginger at PKR 50. Open **Preview menu**, then **Publish menu**.
-4. Print Table 5's QR and scan it. The phone must be able to reach both the frontend and API. Use an HTTPS deployment or set the frontend/API URLs and CORS origin to reachable development addresses before generating the QR. Open the admin workspace at that same guest-reachable frontend origin.
-5. Edit a price, publish again and refresh the guest menu using the same QR.
-
-## Milestone verification
-
-The development run passed eight pytest cases on PostgreSQL 16 and two Chromium Playwright tests. The browser journey signed in through a test identity provider, created a branch and kitchen station, invited a waiter, imported a text PDF, corrected its price, and published it alongside a manually entered dish. It decoded the generated Table 5 QR image, opened its URL, and verified a subsequent price update. Layout checks used widths of 390, 768 and 1,366 pixels.
-
-Photo and scanned-PDF tests used deterministic Vision responses. A live Vision smoke attempt stopped with `DefaultCredentialsError` during credential initialization. Hosted Supabase sign-in, email delivery, private Storage, live OCR recognition, physical printing and a phone scan still need a connected restaurant project and device.
-
-## Deploy the web workspace on Vercel
-
-The root `vercel.json` declares two services. Set the Vercel project's **Root Directory** to the repository root and use the branch containing this configuration. The frontend uses `/api` on the same origin. Vercel forwards that path to FastAPI. FastAPI accepts both the public `/api` prefix and the existing direct backend paths. Both services use the project's environment settings. Only the three `NEXT_PUBLIC_` values are public.
-
-1. Download [the Vercel environment template](deploy/vercel/.env.example) and save a local copy as `.env`. Enter the same Supabase project URL in both URL fields, the publishable key, the server secret or legacy service-role key, and the transaction-pooler connection URI from **Connect**. URL-encode special characters in the database password. Keep the completed file private.
-2. In **Vercel → Project → Settings → Environment Variables**, import the file for **Production** and redeploy. Configure a separate Supabase project for isolated preview data if needed. Same-origin deployments do not require a custom CORS origin.
-3. In Supabase, set the Auth site URL and allowed redirects to your deployed frontend, create the private Storage bucket, and configure asymmetric JWT signing. Run the migrations and bootstrap the first owner once using the Windows commands above and a direct or session-pooler database connection.
-4. For imports, run one persistent `python -m app.worker` process on a worker host with the backend environment settings. Supply Google Vision credentials there for scanned images. The two Vercel web services handle HTTP requests. The worker consumes queued imports independently.
-5. Sign in, open the branch menu and publish a draft. Opening a generated table QR verifies that public reads reach the same backend. A signed-out GET to `/api/branches` should return an HTTP authentication error with a JSON body.
+1. Open the private workspace and add a kitchen station and **Table 5**.
+2. Import a PDF, review the original, correct one price and apply it. Add a manual dish and upload a customer-facing photo.
+3. Preview the draft, publish, and print Table 5's QR. Scan it with a phone and open the menu.
+4. Change a price in the draft. Refresh the phone to verify the published price stays visible. Publish again and refresh through the same QR.

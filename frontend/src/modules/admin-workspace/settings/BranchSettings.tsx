@@ -16,11 +16,9 @@ export default function BranchSettings({
     <form onSubmit={onSave}>
       <div className="record">
         <strong>{restaurant}</strong>
-        {w.role === "owner" && (
-          <button type="button" onClick={rename}>
-            Rename restaurant
-          </button>
-        )}
+        <button type="button" onClick={rename}>
+          Rename restaurant
+        </button>
       </div>
       <label>
         Branch name
@@ -40,11 +38,9 @@ export default function BranchSettings({
         />
       </label>
       <button className="primary">Save settings</button>
-      {w.role === "owner" && (
-        <button type="button" onClick={onCreate}>
-          Create branch
-        </button>
-      )}
+      <button type="button" onClick={onCreate}>
+        Create branch
+      </button>
     </form>
   );
 }

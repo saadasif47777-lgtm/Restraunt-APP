@@ -1,18 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-export const auth = url && key ? createClient(url, key) : null;
-export const apiBase = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:8000")
-).replace(/\/+$/, "");
+export const apiBase = "/api";
 export async function api(path: string, method = "GET", data?: unknown) {
-  const token = (await auth?.auth.getSession())?.data.session?.access_token;
   const form = data instanceof FormData;
   const response = await fetch(apiBase + path, {
     method,
     headers: {
-      ...(token ? { Authorization: "Bearer " + token } : {}),
       ...(!form ? { "Content-Type": "application/json" } : {}),
     },
     body: data ? (form ? (data as FormData) : JSON.stringify(data)) : undefined,
@@ -34,4 +25,13 @@ export async function api(path: string, method = "GET", data?: unknown) {
     throw Error(`${context}${label}.`);
   }
   return result;
+}
+
+export function photoUrl(photo: string, privatePreview = false) {
+  if (!photo) return "";
+  if (privatePreview) {
+    const [, , branch, id] = photo.split("/");
+    return apiBase + "/branches/" + branch + "/photos/" + id;
+  }
+  return apiBase + photo;
 }

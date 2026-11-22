@@ -23,9 +23,8 @@ export type Workspace = {
   stations: string[];
   revision: number;
   live: boolean;
-  role: string;
+  public_menu_base_url: string;
   tables: { id: string; label: string }[];
-  staff: { id?: string; email: string; role: string }[];
   draft: Draft;
 };
 export const blank = (category: string): Dish => ({
