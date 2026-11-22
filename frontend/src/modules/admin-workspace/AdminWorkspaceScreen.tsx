@@ -591,7 +591,7 @@ export default function AdminWorkspaceScreen() {
               </section>
             </>
           ) : (
-            <section className="panel">
+            <section className="panel" key={branch}>
               {tab === "Menu imports" && (
                 <ImportPanel
                   base={base}
@@ -778,6 +778,10 @@ export default function AdminWorkspaceScreen() {
                 onClick={() =>
                   action(async () => {
                     await load(b.id);
+                    setSearch("");
+                    setCat("All categories");
+                    setStatus("All statuses");
+                    paginate(1);
                     setRestaurant(b.restaurant);
                     open("");
                   })
