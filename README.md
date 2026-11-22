@@ -87,3 +87,9 @@ Stop other Next.js processes using this checkout before running browser tests or
 3. In **Menu manager**, add Chicken Karahi, assign Curry, enter Half at PKR 950 and Full at PKR 1,700, and add Extra ginger at PKR 50. Open **Preview menu**, then **Publish menu**.
 4. Print Table 5's QR and scan it. The phone must be able to reach both the frontend and API. Use an HTTPS deployment or set the frontend/API URLs and CORS origin to reachable development addresses before generating the QR. Open the admin workspace at that same guest-reachable frontend origin.
 5. Edit a price, publish again and refresh the guest menu using the same QR.
+
+## Milestone verification
+
+The development run passed eight pytest cases on PostgreSQL 16 and two Chromium Playwright tests. The browser journey signed in through a test identity provider, created a branch and kitchen station, invited a waiter, imported a text PDF, corrected its price, and published it alongside a manually entered dish. It decoded the generated Table 5 QR image, opened its URL, and verified a subsequent price update. Layout checks used widths of 390, 768 and 1,366 pixels.
+
+Photo and scanned-PDF tests used deterministic Vision responses. A live Vision smoke attempt stopped with `DefaultCredentialsError` during credential initialization. Hosted Supabase sign-in, email delivery, private Storage, live OCR recognition, physical printing and a phone scan still need a connected restaurant project and device.
