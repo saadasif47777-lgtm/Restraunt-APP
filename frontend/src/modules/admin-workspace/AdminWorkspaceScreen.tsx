@@ -124,6 +124,7 @@ export default function AdminWorkspaceScreen() {
       );
       return;
     }
+    setEmail("");
     signIn(true);
   }
   useEffect(() => {
@@ -165,6 +166,34 @@ export default function AdminWorkspaceScreen() {
     note("");
     open("");
   }
+  async function leaveWorkspace() {
+    const result = await auth?.auth.signOut();
+    if (result?.error) throw result.error;
+    setW(undefined);
+    setDemo(false);
+    setEmail("");
+    open("");
+    signIn(true);
+  }
+  if (login && email)
+    return (
+      <main className="auth">
+        <Brand />
+        <h1>Opening your workspace</h1>
+        <p>Signed in as {email}</p>
+        {msg && <p role="alert">{msg}</p>}
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => action(initialize)}
+        >
+          Retry workspace
+        </button>
+        <button disabled={busy} onClick={() => action(leaveWorkspace)}>
+          Sign out
+        </button>
+      </main>
+    );
   if (login)
     return (
       <main className="auth">
@@ -911,15 +940,7 @@ export default function AdminWorkspaceScreen() {
           </form>
         )}
         {modal === "Account" && (
-          <button
-            onClick={async () => {
-              await auth?.auth.signOut();
-              setW(undefined);
-              setDemo(false);
-              open("");
-              signIn(true);
-            }}
-          >
+          <button onClick={() => action(leaveWorkspace)}>
             <LogOut size={15} />
             {demo ? "Open staff sign-in" : "Sign out"}
           </button>
