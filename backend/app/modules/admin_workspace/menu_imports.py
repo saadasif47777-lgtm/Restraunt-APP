@@ -15,6 +15,7 @@ from google.cloud import vision
 from google.auth.exceptions import DefaultCredentialsError
 from PIL import Image
 from sqlalchemy import select
+from app.core.supabase import admin_headers, project_url
 from .menu_routes import Db, User, authorize
 from .models import ImportJob, uid
 
@@ -83,15 +84,12 @@ def fetch_public(url):
 
 
 def storage(method, path, body=None, mime=None):
-    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    if not key:
-        raise ValueError("Configure Supabase private menu storage.")
-    headers = {"Authorization": "Bearer " + key, "apikey": key}
+    headers = admin_headers()
     if mime:
         headers["Content-Type"] = mime
     r = httpx.request(
         method,
-        os.environ["SUPABASE_URL"]
+        project_url()
         + "/storage/v1/object/"
         + os.environ.get("MENU_BUCKET", "menu-originals")
         + "/"
