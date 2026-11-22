@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Search, Utensils } from "lucide-react";
-import { api } from "../admin-workspace/api";
+import { api, photoUrl } from "../admin-workspace/api";
 import type { Draft } from "../admin-workspace/menu/types";
 type Menu = Draft & {
   restaurant: string;
@@ -9,7 +9,13 @@ type Menu = Draft & {
   table: string;
   currency: string;
 };
-export function MenuView({ menu }: { menu: Menu }) {
+export function MenuView({
+  menu,
+  privatePreview = false,
+}: {
+  menu: Menu;
+  privatePreview?: boolean;
+}) {
   const [category, set] = useState("All");
   const [q, search] = useState("");
   return (
@@ -48,7 +54,11 @@ export function MenuView({ menu }: { menu: Menu }) {
         .map((d) => (
           <details key={d.id}>
             <summary>
-              {d.photo ? <img src={d.photo} alt="" /> : <Utensils />}
+              {d.photo ? (
+                <img src={photoUrl(d.photo, privatePreview)} alt="" />
+              ) : (
+                <Utensils />
+              )}
               <span>
                 <strong>{d.name}</strong>
                 <small>{d.available ? d.category : "Sold out"}</small>
