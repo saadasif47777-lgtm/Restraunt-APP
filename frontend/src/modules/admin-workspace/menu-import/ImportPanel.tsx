@@ -179,6 +179,10 @@ export default function ImportPanel({
       {review.length > 0 && (
         <>
           <h3>Proposed additions ({review.length})</h3>
+          <small>
+            Confirm portions and allergens against the original before
+            publication.
+          </small>
           <label>
             Kitchen station for all
             <input

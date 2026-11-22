@@ -52,6 +52,15 @@ test("owner publishes a private draft and updates the same table QR", async ({
   await page.getByRole("button", { name: "Menu imports" }).click();
   await page
     .locator("input[type=file]")
+    .setInputFiles({
+      name: "invalid.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("invalid image"),
+    });
+  await page.getByRole("button", { name: "Start import" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page
+    .locator("input[type=file]")
     .setInputFiles("tests/fixtures/sample-menu.pdf");
   await page.getByRole("button", { name: "Start import" }).click();
   await page
@@ -68,6 +77,9 @@ test("owner publishes a private draft and updates the same table QR", async ({
   await page.getByLabel("Price", { exact: true }).fill("950");
   await page.getByRole("button", { name: "Save dish" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Preview menu" }).click();
+  await expect(page.getByRole("dialog").getByText("PKR 200")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   const url = decoded!.data;
   const publicPage = await page.context().newPage();
   await publicPage.goto(url);
