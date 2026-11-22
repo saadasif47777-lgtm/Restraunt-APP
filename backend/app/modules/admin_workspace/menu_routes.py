@@ -1,4 +1,4 @@
-import os
+from app.core.supabase import admin_headers, project_url
 from typing import Literal, Annotated
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -112,11 +112,11 @@ def branches(db: Db, user: User):
 
 @router.post("/branches/{branch}/branches")
 def add_branch(branch: str, data: Named, db: Db, user: User):
-    authorize(db, user, branch, True)
+    owner = authorize(db, user, branch, True)
     b = Branch(name=data.name, restaurant=db.get(Branch, branch).restaurant)
     db.add(b)
     db.flush()
-    db.add(Member(subject=user, branch=b.id, role="owner"))
+    db.add(Member(subject=user, branch=b.id, role="owner", email=owner.email))
     db.commit()
     return {"id": b.id}
 
@@ -178,10 +178,13 @@ class Invitation(BaseModel):
 @router.post("/branches/{branch}/staff")
 def invite(branch: str, data: Invitation, db: Db, user: User):
     authorize(db, user, branch, True)
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    try:
+        headers = admin_headers()
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
     r = httpx.post(
-        os.environ["SUPABASE_URL"] + "/auth/v1/invite",
-        headers={"apikey": key, "Authorization": "Bearer " + key},
+        project_url() + "/auth/v1/invite",
+        headers=headers,
         json={"email": data.email},
     )
     if r.is_error:
