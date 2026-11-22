@@ -1,14 +1,244 @@
-import RevisionReview from './RevisionReview'
-import {useEffect,useState} from 'react'
-import {Upload,Link as LinkIcon} from 'lucide-react'
-import {api,apiBase,auth} from '../api'
-import {blank,type Draft,type Dish} from '../menu/types'
-type Row={id:string;name:string;price:number|null}
-type Job={id:string;status:string;error:string;pages:{text:string;source:number;page:number;rows:Row[]}[]}
-export default function ImportPanel({base,preview,draft,apply}:{base:string;preview:boolean;draft:Draft;apply:(d:Draft)=>Promise<void>}){
- const [mode,choose]=useState('Upload files'),[jobs,set]=useState<Job[]>([]),[error,fail]=useState(''),[busy,wait]=useState(false),[review,select]=useState<Dish[]>([]),[original,show]=useState('')
- useEffect(()=>{if(preview)return;const refresh=()=>api(base+'/imports').then(set).catch(e=>fail(e.message));refresh();const t=setInterval(refresh,3500);return()=>clearInterval(t)},[base,preview])
- useEffect(()=>()=>{if(original)URL.revokeObjectURL(original)},[original])
- async function source(j:string,i:number){const token=(await auth?.auth.getSession())?.data.session?.access_token;const r=await fetch(apiBase+base+'/imports/'+j+'/source/'+i,{headers:{Authorization:'Bearer '+token}});if(!r.ok)throw Error('No uploaded original for this link. Review the extracted text.');show(URL.createObjectURL(await r.blob()))}
- return <><div className="chips">{['Upload files','Menu link','QR image'].map(m=><button key={m} className={m===mode?'active':''} onClick={()=>choose(m)}>{m==='Menu link'?<LinkIcon size={14}/>:<Upload size={14}/>} {m}</button>)}</div><form key={mode} onSubmit={async e=>{e.preventDefault();fail('');if(preview){fail('Sign in to a connected branch to process private menu files.');return}const f=new FormData(e.currentTarget);if(mode==='QR image')f.append('qr','true');wait(true);try{await api(base+'/imports','POST',f);set(await api(base+'/imports'))}catch(err){fail(String(err))}finally{wait(false)}}}>{mode==='Menu link'?<label>Existing menu URL<input required name="url" type="url" placeholder="https://"/></label>:<label>{mode==='QR image'?'Existing menu QR':'Menu photos or PDF'}<input required name="files" type="file" multiple={mode!=='QR image'} accept={mode==='QR image'?'image/*':'image/png,image/jpeg,image/webp,application/pdf'}/></label>}<button className="primary" disabled={busy}>{busy?'Uploading…':'Start import'}</button></form>{error&&<p role="alert">{error}</p>}{jobs.map(j=><section key={j.id}><h3>Import · {j.status}</h3><small>{j.pages.length} pages processed</small><p>{j.error}</p>{j.status==='failed'&&<button onClick={()=>api(base+'/imports/'+j.id+'/retry','POST').catch(e=>fail(e.message))}>Retry failed page</button>}{j.pages.map(p=><details key={p.source+'-'+p.page}><summary>Source {p.source+1} · Page {p.page+1}</summary><pre>{p.text}</pre><button onClick={()=>source(j.id,p.source).catch(e=>fail(e.message))}>View original</button></details>)}{j.status==='review'&&<button onClick={()=>select(j.pages.flatMap(p=>p.rows).filter(r=>!draft.dishes.some(d=>d.id===r.id)).map(r=>({...blank(draft.categories[0]||'Imported'),id:r.id,name:r.name,portions:[{name:'Regular',price:r.price}]})))}>Review additions</button>}</section>)}{original&&<iframe title="Original menu" src={original}/>} {review.length>0&&<><h3>Proposed additions ({review.length})</h3><label>Kitchen station for all<input onChange={e=>select(review.map(d=>({...d,station:e.target.value})))}/></label>{review.map((d,i)=><div className="line" key={d.id}><input aria-label="Dish name" value={d.name} onChange={e=>select(review.map((v,j)=>i===j?{...v,name:e.target.value}:v))}/><input aria-label="Price" placeholder="Review price" type="number" min="0" value={d.portions[0].price??''} onChange={e=>select(review.map((v,j)=>i===j?{...v,portions:[{name:'Regular',price:e.target.value===''?null:Number(e.target.value)}]}:v))}/><button onClick={()=>select(review.filter(v=>v.id!==d.id))}>×</button></div>)}<RevisionReview rows={review} draft={draft} apply={async d=>{await apply(d);select([])}}/></>}</>
+import RevisionReview from "./RevisionReview";
+import { useEffect, useState } from "react";
+import { Upload, Link as LinkIcon } from "lucide-react";
+import { api, apiBase, auth } from "../api";
+import { blank, type Draft, type Dish } from "../menu/types";
+type Row = { id: string; name: string; price: number | null };
+type Job = {
+  id: string;
+  status: string;
+  error: string;
+  pages: { text: string; source: number; page: number; rows: Row[] }[];
+};
+export default function ImportPanel({
+  base,
+  preview,
+  draft,
+  apply,
+}: {
+  base: string;
+  preview: boolean;
+  draft: Draft;
+  apply: (d: Draft) => Promise<void>;
+}) {
+  const [mode, choose] = useState("Upload files"),
+    [jobs, set] = useState<Job[]>([]),
+    [error, fail] = useState(""),
+    [busy, wait] = useState(false),
+    [review, select] = useState<Dish[]>([]),
+    [original, show] = useState("");
+  useEffect(() => {
+    if (preview) return;
+    const refresh = () =>
+      api(base + "/imports")
+        .then(set)
+        .catch((e) => fail(e.message));
+    refresh();
+    const t = setInterval(refresh, 3500);
+    return () => clearInterval(t);
+  }, [base, preview]);
+  useEffect(
+    () => () => {
+      if (original) URL.revokeObjectURL(original);
+    },
+    [original],
+  );
+  async function source(j: string, i: number) {
+    const token = (await auth?.auth.getSession())?.data.session?.access_token;
+    const r = await fetch(apiBase + base + "/imports/" + j + "/source/" + i, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (!r.ok)
+      throw Error(
+        "No uploaded original for this link. Review the extracted text.",
+      );
+    show(URL.createObjectURL(await r.blob()));
+  }
+  return (
+    <>
+      <div className="chips">
+        {["Upload files", "Menu link", "QR image"].map((m) => (
+          <button
+            key={m}
+            className={m === mode ? "active" : ""}
+            onClick={() => choose(m)}
+          >
+            {m === "Menu link" ? <LinkIcon size={14} /> : <Upload size={14} />}{" "}
+            {m}
+          </button>
+        ))}
+      </div>
+      <form
+        key={mode}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          fail("");
+          if (preview) {
+            fail(
+              "Sign in to a connected branch to process private menu files.",
+            );
+            return;
+          }
+          const f = new FormData(e.currentTarget);
+          if (mode === "QR image") f.append("qr", "true");
+          wait(true);
+          try {
+            await api(base + "/imports", "POST", f);
+            set(await api(base + "/imports"));
+          } catch (err) {
+            fail(String(err));
+          } finally {
+            wait(false);
+          }
+        }}
+      >
+        {mode === "Menu link" ? (
+          <label>
+            Existing menu URL
+            <input required name="url" type="url" placeholder="https://" />
+          </label>
+        ) : (
+          <label>
+            {mode === "QR image" ? "Existing menu QR" : "Menu photos or PDF"}
+            <input
+              required
+              name="files"
+              type="file"
+              multiple={mode !== "QR image"}
+              accept={
+                mode === "QR image"
+                  ? "image/*"
+                  : "image/png,image/jpeg,image/webp,application/pdf"
+              }
+            />
+          </label>
+        )}
+        <button className="primary" disabled={busy}>
+          {busy ? "Uploading…" : "Start import"}
+        </button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      {jobs.map((j) => (
+        <section key={j.id}>
+          <h3>Import · {j.status}</h3>
+          <small>{j.pages.length} pages processed</small>
+          <p>{j.error}</p>
+          {j.status === "failed" && (
+            <button
+              onClick={() =>
+                api(base + "/imports/" + j.id + "/retry", "POST").catch((e) =>
+                  fail(e.message),
+                )
+              }
+            >
+              Retry failed page
+            </button>
+          )}
+          {j.pages.map((p) => (
+            <details key={p.source + "-" + p.page}>
+              <summary>
+                Source {p.source + 1} · Page {p.page + 1}
+              </summary>
+              <pre>{p.text}</pre>
+              <button
+                onClick={() =>
+                  source(j.id, p.source).catch((e) => fail(e.message))
+                }
+              >
+                View original
+              </button>
+            </details>
+          ))}
+          {j.status === "review" && (
+            <button
+              onClick={() =>
+                select(
+                  j.pages
+                    .flatMap((p) => p.rows)
+                    .filter((r) => !draft.dishes.some((d) => d.id === r.id))
+                    .map((r) => ({
+                      ...blank(draft.categories[0] || "Imported"),
+                      id: r.id,
+                      name: r.name,
+                      portions: [{ name: "Regular", price: r.price }],
+                    })),
+                )
+              }
+            >
+              Review additions
+            </button>
+          )}
+        </section>
+      ))}
+      {original && <iframe title="Original menu" src={original} />}{" "}
+      {review.length > 0 && (
+        <>
+          <h3>Proposed additions ({review.length})</h3>
+          <label>
+            Kitchen station for all
+            <input
+              onChange={(e) =>
+                select(review.map((d) => ({ ...d, station: e.target.value })))
+              }
+            />
+          </label>
+          {review.map((d, i) => (
+            <div className="line" key={d.id}>
+              <input
+                aria-label="Dish name"
+                value={d.name}
+                onChange={(e) =>
+                  select(
+                    review.map((v, j) =>
+                      i === j ? { ...v, name: e.target.value } : v,
+                    ),
+                  )
+                }
+              />
+              <input
+                aria-label="Price"
+                placeholder="Review price"
+                type="number"
+                min="0"
+                value={d.portions[0].price ?? ""}
+                onChange={(e) =>
+                  select(
+                    review.map((v, j) =>
+                      i === j
+                        ? {
+                            ...v,
+                            portions: [
+                              {
+                                name: "Regular",
+                                price:
+                                  e.target.value === ""
+                                    ? null
+                                    : Number(e.target.value),
+                              },
+                            ],
+                          }
+                        : v,
+                    ),
+                  )
+                }
+              />
+              <button
+                onClick={() => select(review.filter((v) => v.id !== d.id))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <RevisionReview
+            rows={review}
+            draft={draft}
+            apply={async (d) => {
+              await apply(d);
+              select([]);
+            }}
+          />
+        </>
+      )}
+    </>
+  );
 }

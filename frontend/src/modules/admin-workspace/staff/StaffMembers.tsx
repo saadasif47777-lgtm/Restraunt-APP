@@ -1,3 +1,42 @@
-import {Users} from 'lucide-react'
-import type {Workspace} from '../menu/types'
-export default function StaffMembers({w,invite,assign}:{assign:(id:string,role:string)=>void;w:Workspace;invite:()=>void}){return <>{w.role==='owner'&&<button className="primary" onClick={invite}>Invite staff</button>}{w.staff.map((s,i)=><div className="record" key={i}><Users size={17}/>{s.email}<small>{w.role==='owner'&&s.role!=='owner'&&s.id?<select aria-label={'Role for '+s.email} value={s.role} onChange={e=>assign(s.id!,e.target.value)}>{['manager','waiter','cook','cashier'].map(r=><option key={r}>{r}</option>)}</select>:s.role}</small></div>)}</>}
+import { Users } from "lucide-react";
+import type { Workspace } from "../menu/types";
+export default function StaffMembers({
+  w,
+  invite,
+  assign,
+}: {
+  assign: (id: string, role: string) => void;
+  w: Workspace;
+  invite: () => void;
+}) {
+  return (
+    <>
+      {w.role === "owner" && (
+        <button className="primary" onClick={invite}>
+          Invite staff
+        </button>
+      )}
+      {w.staff.map((s, i) => (
+        <div className="record" key={i}>
+          <Users size={17} />
+          {s.email}
+          <small>
+            {w.role === "owner" && s.role !== "owner" && s.id ? (
+              <select
+                aria-label={"Role for " + s.email}
+                value={s.role}
+                onChange={(e) => assign(s.id!, e.target.value)}
+              >
+                {["manager", "waiter", "cook", "cashier"].map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            ) : (
+              s.role
+            )}
+          </small>
+        </div>
+      ))}
+    </>
+  );
+}

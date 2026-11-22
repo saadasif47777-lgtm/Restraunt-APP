@@ -1,64 +1,933 @@
-'use client'
-import {useEffect,useRef,useState} from 'react'
-import {BellRing,BookOpen,Boxes,Building2,Check,ChevronDown,ChevronLeft,ChevronRight,ChevronsUpDown,ChefHat, CircleHelp, ClipboardList, CookingPot,Ellipsis,ExternalLink,Eye,Flame,FolderOpen,Grid2X2,Layers,LayoutGrid, List,LogOut, MapPin, Menu,Plus, QrCode, Search,Send,Settings2,SlidersHorizontal,Store,Upload, Users,Utensils, X} from 'lucide-react'
-import {api,auth} from './api'
-import {blank,type Draft,type Dish,type Workspace} from './menu/types'
-import CategoryEditor from './menu/CategoryEditor'
-import DishEditor from './menu/DishEditor'
-import ImportPanel from './menu-import/ImportPanel'
-import BranchSettings from './settings/BranchSettings'
-import StaffMembers from './staff/StaffMembers'
-import KitchenStations from './stations/KitchenStations'
-import TableQR from './tables/TableQR'
-import {MenuView} from '../customer-menu/CustomerMenuScreen'
-const dev=process.env.NODE_ENV==='development'
-const links=[['Menu manager',BookOpen],['Menu imports',Upload],['Tables & QR',QrCode],['Kitchen stations',ChefHat],['Staff members',Users],['Settings',Settings2]] as const
-const words:Record<string,string>={'Menu manager':'Build, organize, and publish your restaurant menu.','Menu imports':'Bring existing menus into your editable draft.','Tables & QR':'Create stable menu links for your dining tables.','Kitchen stations':'Manage the stations that prepare your dishes.','Staff members':'Manage staff access for this branch.','Settings':'Update restaurant branches and operating details.'}
-type Branch={id:string;name:string;restaurant:string;role:string}
-function Brand(){return <div className="brand"><span><CookingPot size={24} strokeWidth={2}/></span>Tablelane<i>.</i></div>}
-export default function AdminWorkspaceScreen(){
- const [w,setW]=useState<Workspace>(),[branch,setBranch]=useState(''),[branches,setBranches]=useState<Branch[]>([]),[restaurant,setRestaurant]=useState(''),[demo,setDemo]=useState(false),[login,signIn]=useState(false),[email,setEmail]=useState(''),[tab,setTab]=useState('Menu manager'),[modal,open]=useState(''),[dish,edit]=useState<Dish>(),[msg,note]=useState(''),[busy,wait]=useState(false),[search,setSearch]=useState(''),[cat,setCat]=useState('All categories'),[status,setStatus]=useState('All statuses'),[filter,filters]=useState(false),[grid,setGrid]=useState(false),[side,sidebar]=useState(false),[page,paginate]=useState(1)
- const dialog=useRef<HTMLDialogElement>(null)
- useEffect(()=>{if(modal){dialog.current?.showModal()}else dialog.current?.close()},[modal])
- async function load(id:string){const value=await api('/branches/'+id);setBranch(id);setW(value)}
- async function initialize(){
- if(auth){const session=(await auth.auth.getSession()).data.session;if(session){setEmail(session.user.email||'Staff');const list:Branch[]=await api('/branches');setBranches(list);if(!list.length)throw Error('No owner or manager branch assigned.');setRestaurant(list[0].restaurant);await load(list[0].id);signIn(false);return}}
- if(dev&&!auth){const {sample}=await import('./menu/fixtures');setDemo(true);setRestaurant('Saffron House');setW(JSON.parse(localStorage.getItem('tablelane.sample')||'null')||sample);return}signIn(true)}
- useEffect(()=>{initialize().catch(e=>{note(e.message);signIn(true)})},[])
- const base='/branches/'+branch
- function update(value:Workspace){setW(value);if(demo)localStorage.setItem('tablelane.sample',JSON.stringify(value))}
- async function action(fn:()=>Promise<void>){note('');wait(true);try{await fn()}catch(e){note(e instanceof Error?e.message:String(e))}finally{wait(false)}}
- async function save(draft:Draft){if(!w)return;let revision=w.revision+1;if(!demo)revision=(await api(base+'/draft','PUT',{draft,revision:w.revision})).revision;update({...w,draft,revision});open('');note('Draft saved.')}
- function navigate(t:string){setTab(t);sidebar(false);note('');open('')}
- if(login)return <main className="auth"><Brand/><form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);action(async()=>{if(!auth)throw Error('Configure Supabase to sign in to a live workspace.');const r=await auth.auth.signInWithPassword({email:String(data.get('email')),password:String(data.get('password'))});if(r.error)throw r.error;await initialize()})}}><h1>Staff sign-in</h1><label>Email<input name="email" type="email" required/></label><label>Password<input name="password" type="password" required/></label><button className="primary" disabled={busy}>Sign in</button>{msg&&<p role="alert">{msg}</p>}</form></main>
- if(!w)return <main className="auth"><Brand/><p>Loading workspace…</p></main>
- const dishes=w.draft.dishes.filter(d=>!d.archived),available=dishes.filter(d=>d.available).length
- const shown=dishes.filter(d=>d.name.toLowerCase().includes(search.toLowerCase())&&(cat==='All categories'||cat===d.category)&&(status==='All statuses'||d.available===(status==='Available')))
- const pages=Math.max(1,Math.ceil(shown.length/8)),current=Math.min(pages,page)
- const newDish=()=>{edit(blank(w.draft.categories[0]||'Mains'));open('Add dish')}
- async function setting(fn:(f:FormData)=>Promise<void>,e:React.FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);await action(async()=>{await fn(f);if(!demo)await load(branch);open('');note('Changes saved.')})}
- const detail=dish&&w.draft.dishes.find(d=>d.id===dish.id)
- return <div className="app">{side&&<button className="scrim" aria-label="Close navigation" onClick={()=>sidebar(false)}/>}<aside className={side?'open':''}><Brand/><button className="location" onClick={()=>open('Select branch')}><span className="store"><Store size={19}/></span><span><b>{restaurant}</b><small>{w.name}</small></span><ChevronsUpDown size={14}/></button><div className="navlabel">WORKSPACE</div><nav>{links.slice(0,4).map(([name,Icon])=><button key={name} className={tab===name?'selected':''} onClick={()=>navigate(name)}><Icon/>{name}</button>)}</nav><div className="navlabel">MANAGEMENT</div><nav>{links.slice(4).map(([name,Icon])=><button key={name} className={tab===name?'selected':''} onClick={()=>navigate(name)}><Icon/>{name}</button>)}</nav><div className="sidefoot">{dev&&<button onClick={()=>open('Development previews')}><Layers size={17}/>Development previews</button>}<div className="profile"><span className="avatar">{demo?'AK':email.slice(0,2).toUpperCase()}</span><div><b>{demo?'Ayesha Khan':email}</b><small>{demo?'Demo workspace':w.role}</small></div><button aria-label="Account" onClick={()=>open('Account')}><ChevronsUpDown size={15}/></button></div></div></aside>
- <div className="body"><header><button className="burger" onClick={()=>sidebar(true)} aria-label="Open navigation"><Menu/></button><span className="bread"><LayoutGrid size={15}/> Workspace <ChevronRight size={13}/> <b>{tab}</b></span><button className="branch" onClick={()=>open('Select branch')}><MapPin size={15}/>{w.name}<ChevronDown size={14}/></button></header>
- <main className="content"><div className="pagehead"><div><div className="eyebrow"><span/> RESTAURANT WORKSPACE</div><h1>{tab}</h1><p>{words[tab]}</p></div>{tab==='Menu manager'&&<button className="primary" onClick={()=>open('Publish menu')}><Send size={16}/>Publish menu</button>}</div>
- {msg&&!modal&&<div className="notice" role="status">{msg}<button onClick={()=>note('')} aria-label="Dismiss message"><X size={14}/></button></div>}
- {tab==='Menu manager'?<><section className="hero"><div className="heroText"><div className="heroTag"><BookOpen size={13}/> MENU COLLECTION</div><h2>The House Menu</h2><p><Store size={14}/>{restaurant}<i/> {w.name}</p><button onClick={()=>open('Menu preview')}><Eye size={15}/>Preview menu<ChevronRight size={14}/></button></div><div className="heroPhoto">{(demo||dishes.find(d=>d.photo))?<img src={demo?'/food/karahi.jpg':dishes.find(d=>d.photo)?.photo} alt="House menu specialty"/>:<CookingPot size={72}/>}</div></section>
- <div className="stats">{[[Utensils,'Total dishes',dishes.length,'sage'],[Layers,'Categories',w.draft.categories.length,'sand'],[Check,'Available',available,'green'],[CookingPot,'Sold out',dishes.length-available,'rose']].map(([I,title,num,color])=>{const Icon=I as typeof Utensils;return <div className="stat" key={String(title)}><span className={'statIcon '+color}><Icon size={19}/></span><div><small>{String(title)}</small><strong>{String(num).padStart(2,'0')}</strong></div></div>})}</div>
- <section className="catalog"><div className="catalogHead"><div><h2>Menu items</h2><small>{dishes.length} dishes in your menu</small></div><div className="actions"><button onClick={()=>navigate('Menu imports')}><Upload size={15}/>Import menu</button><button className="primary" onClick={newDish}><Plus size={16}/>Add dish</button></div></div><div className="tools"><div className="search"><Search size={16}/><input placeholder="Search dishes..." aria-label="Search dishes" value={search} onChange={e=>{setSearch(e.target.value);paginate(1)}}/></div><select aria-label="Filter category" value={cat} onChange={e=>setCat(e.target.value)}>{['All categories',...w.draft.categories].map(c=><option key={c}>{c}</option>)}</select><button className={filter?'active':''} onClick={()=>filters(!filter)}><SlidersHorizontal size={14}/>Filters</button><div className="viewModes"><button className={!grid?'on':''} aria-label="List view" onClick={()=>setGrid(false)}><List size={16}/></button><button className={grid?'on':''} aria-label="Grid view" onClick={()=>setGrid(true)}><Grid2X2 size={15}/></button></div></div>
- {filter&&<div className="chips">{['All statuses','Available','Sold out'].map(s=><button key={s} className={s===status?'active':''} onClick={()=>setStatus(s)}>{s}</button>)}<button onClick={()=>open('Manage categories')}>Manage categories</button></div>}
- <div className={grid?'dishgrid':'dishlist'}>{!grid&&<div className="thead"><span>Dish name</span><span>Category</span><span>Price</span><span>Status</span><span/></div>}{shown.slice((current-1)*8,current*8).map(d=><div className="dishrow" key={d.id}><button className="itemname" onClick={()=>{edit(d);open('Edit dish')}}>{d.photo?<img alt="" src={d.photo}/>:<span className="noimage"><Utensils/></span>}<span><strong>{d.name}</strong><small>{d.description||d.station}</small></span></button><span><em className={'category c'+w.draft.categories.indexOf(d.category)%5}>{d.category}</em></span><span className="price"><small>{w.currency} </small>{d.portions[0].price?.toLocaleString()??'Review'}</span><button title="Toggle availability" className={'status '+(d.available?'yes':'no')} onClick={()=>action(()=>save({...w.draft,dishes:w.draft.dishes.map(x=>x.id===d.id?{...x,available:!x.available}:x)}))}><i/>{d.available?'Available':'Sold out'}</button><button className="more" aria-label={'Options for '+d.name} onClick={()=>{edit(d);open('Dish options')}}><Ellipsis size={18}/></button></div>)}</div>{!shown.length&&<p className="empty">No dishes found.</p>}<footer><small>{shown.length?((current-1)*8+1)+'–'+Math.min(current*8,shown.length):0} of {shown.length} dishes</small><div><button disabled={current<=1} aria-label="Previous page" onClick={()=>paginate(current-1)}><ChevronLeft size={14}/></button><button disabled={current>=pages} aria-label="Next page" onClick={()=>paginate(current+1)}><ChevronRight size={14}/></button></div></footer></section></>:<section className="panel">
- {tab==='Menu imports'&&<ImportPanel base={base} preview={demo} draft={w.draft} apply={save}/>}
- {tab==='Tables & QR'&&<><button className="primary" onClick={()=>open('Add table')}><Plus size={15}/>Add table</button>{w.tables.map(t=><TableQR key={t.id} {...t} preview={demo}/>)}</>}
- {tab==='Kitchen stations'&&<KitchenStations stations={w.stations} add={()=>open('Add station')}/>}
- {tab==='Staff members'&&<StaffMembers w={w} assign={(id,role)=>action(async()=>{await api(base+'/staff/'+id,'PUT',{role});await load(branch)})} invite={()=>open('Invite staff')}/>}
- {tab==='Settings'&&<BranchSettings restaurant={restaurant} rename={()=>open('Restaurant name')} w={w} onCreate={()=>open('Create branch')} onSave={e=>setting(async f=>{const v={name:String(f.get('name')),hours:String(f.get('hours')),currency:String(f.get('currency')),stations:w.stations};if(demo)update({...w,...v});else await api(base+'/settings','PUT',v)},e)}/>}</section>}
- </main></div><dialog ref={dialog} onCancel={()=>open('')}><div className="dialoghead"><h2>{modal}</h2><button aria-label="Close" onClick={()=>open('')}><X size={18}/></button></div>{msg&&<p role="status">{msg}</p>}
- {['Add dish','Edit dish'].includes(modal)&&dish&&<DishEditor initial={dish} categories={w.draft.categories} stations={w.stations} onSave={d=>action(()=>save({categories:[...new Set([...w.draft.categories,d.category])],dishes:detail?w.draft.dishes.map(x=>x.id===d.id?d:x):[...w.draft.dishes,d]}))}/>}
- {modal==='Dish options'&&detail&&<div className="optionlist"><button onClick={()=>open('Edit dish')}>Edit dish</button><label>Display position<select value={w.draft.dishes.indexOf(detail)} onChange={e=>{const list=w.draft.dishes.filter(d=>d.id!==detail.id);list.splice(+e.target.value,0,detail);action(()=>save({...w.draft,dishes:list}))}}>{w.draft.dishes.map((d,i)=><option key={d.id} value={i}>{i+1}</option>)}</select></label><button onClick={()=>action(()=>save({...w.draft,dishes:w.draft.dishes.map(d=>d.id===detail.id?{...d,archived:true}:d)}))}>Archive dish</button></div>}
- {modal==='Manage categories'&&<CategoryEditor draft={w.draft} save={save}/>}
- {modal==='Menu preview'&&<MenuView menu={{...w.draft,restaurant,branch:w.name,table:'Draft preview',currency:w.currency}}/>}
- {modal==='Publish menu'&&<><p>{demo?'Preview publication in this demo workspace.':"Update all table menus with this draft."}</p><div className="record">{dishes.length} dishes · {w.draft.categories.length} categories</div><button className="primary" disabled={busy} onClick={()=>action(async()=>{if(!demo)await api(base+'/publish','POST',{revision:w.revision});else if(!dishes.length||dishes.some(d=>d.portions.some(p=>p.price===null)))throw Error('Review missing prices before publishing');update({...w,live:true});open('');note(demo?'Publication preview complete.':'Menu published to all tables.')})}>{demo?'Test publication':'Publish menu'}</button></>}
- {modal==='Select branch'&&(demo?<p>{restaurant} · {w.name}</p>:branches.map(b=><button key={b.id} onClick={()=>action(async()=>{await load(b.id);setRestaurant(b.restaurant);open('')})}>{b.restaurant} · {b.name}</button>))}
- {['Add table','Add station','Invite staff','Create branch','Restaurant name'].includes(modal)&&<form onSubmit={e=>setting(async f=>{const name=String(f.get('name')),role=String(f.get('role'));if(modal==='Restaurant name'){if(!demo)await api(base+'/restaurant','PUT',{name});setRestaurant(name)}if(modal==='Add table'){if(demo)update({...w,tables:[...w.tables,{id:crypto.randomUUID(),label:name}]});else await api(base+'/tables','POST',{name})}if(modal==='Add station'){const stations=[...new Set([...w.stations,name])];if(demo)update({...w,stations});else await api(base+'/settings','PUT',{name:w.name,currency:w.currency,hours:w.hours,stations})}if(modal==='Invite staff'){if(demo)throw Error('Sign in to send staff invitations.');await api(base+'/staff','POST',{email:name,role})}if(modal==='Create branch'){if(demo)throw Error('Sign in to create a branch.');await api(base+'/branches','POST',{name});setBranches(await api('/branches'))}},e)}><label>{modal==='Invite staff'?'Email':'Name'}<input required type={modal==='Invite staff'?'email':'text'} name="name"/></label>{modal==='Invite staff'&&<label>Branch role<select name="role">{['manager','waiter','cook','cashier'].map(r=><option key={r}>{r}</option>)}</select></label>}<button disabled={busy} className="primary">{modal}</button></form>}
- {modal==='Development previews'&&<div className="optionlist">{['table-ordering','waiter-floor','kitchen-display','guest-tracker','billing','reports','guest-experience'].map(m=><a key={m} href={'/preview/'+m}>{m.replaceAll('-',' ')}<ExternalLink size={14}/></a>)}</div>}{modal==='Account'&&!demo&&<form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);action(async()=>{const r=await auth!.auth.updateUser({password:String(f.get('password'))});if(r.error)throw r.error;open('');note('Password updated.')})}}><label>New password<input name="password" required minLength={8} autoComplete="new-password" type="password"/></label><button>Set password</button></form>}{modal==='Account'&&<button onClick={async()=>{await auth?.auth.signOut();setW(undefined);setDemo(false);open('');signIn(true)}}><LogOut size={15}/>{demo?'Open staff sign-in':'Sign out'}</button>}</dialog></div>
+"use client";
+import { useEffect, useRef, useState } from "react";
+import {
+  BellRing,
+  BookOpen,
+  Boxes,
+  Building2,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  ChefHat,
+  CircleHelp,
+  ClipboardList,
+  CookingPot,
+  Ellipsis,
+  ExternalLink,
+  Eye,
+  Flame,
+  FolderOpen,
+  Grid2X2,
+  Layers,
+  LayoutGrid,
+  List,
+  LogOut,
+  MapPin,
+  Menu,
+  Plus,
+  QrCode,
+  Search,
+  Send,
+  Settings2,
+  SlidersHorizontal,
+  Store,
+  Upload,
+  Users,
+  Utensils,
+  X,
+} from "lucide-react";
+import { api, auth } from "./api";
+import { blank, type Draft, type Dish, type Workspace } from "./menu/types";
+import CategoryEditor from "./menu/CategoryEditor";
+import DishEditor from "./menu/DishEditor";
+import ImportPanel from "./menu-import/ImportPanel";
+import BranchSettings from "./settings/BranchSettings";
+import StaffMembers from "./staff/StaffMembers";
+import KitchenStations from "./stations/KitchenStations";
+import TableQR from "./tables/TableQR";
+import { MenuView } from "../customer-menu/CustomerMenuScreen";
+const dev = process.env.NODE_ENV === "development";
+const links = [
+  ["Menu manager", BookOpen],
+  ["Menu imports", Upload],
+  ["Tables & QR", QrCode],
+  ["Kitchen stations", ChefHat],
+  ["Staff members", Users],
+  ["Settings", Settings2],
+] as const;
+const words: Record<string, string> = {
+  "Menu manager": "Build, organize, and publish your restaurant menu.",
+  "Menu imports": "Bring existing menus into your editable draft.",
+  "Tables & QR": "Create stable menu links for your dining tables.",
+  "Kitchen stations": "Manage the stations that prepare your dishes.",
+  "Staff members": "Manage staff access for this branch.",
+  Settings: "Update restaurant branches and operating details.",
+};
+type Branch = { id: string; name: string; restaurant: string; role: string };
+function Brand() {
+  return (
+    <div className="brand">
+      <span>
+        <CookingPot size={24} strokeWidth={2} />
+      </span>
+      Tablelane<i>.</i>
+    </div>
+  );
+}
+export default function AdminWorkspaceScreen() {
+  const [w, setW] = useState<Workspace>(),
+    [branch, setBranch] = useState(""),
+    [branches, setBranches] = useState<Branch[]>([]),
+    [restaurant, setRestaurant] = useState(""),
+    [demo, setDemo] = useState(false),
+    [login, signIn] = useState(false),
+    [email, setEmail] = useState(""),
+    [tab, setTab] = useState("Menu manager"),
+    [modal, open] = useState(""),
+    [dish, edit] = useState<Dish>(),
+    [msg, note] = useState(""),
+    [busy, wait] = useState(false),
+    [search, setSearch] = useState(""),
+    [cat, setCat] = useState("All categories"),
+    [status, setStatus] = useState("All statuses"),
+    [filter, filters] = useState(false),
+    [grid, setGrid] = useState(false),
+    [side, sidebar] = useState(false),
+    [page, paginate] = useState(1);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (modal) {
+      dialog.current?.showModal();
+    } else dialog.current?.close();
+  }, [modal]);
+  async function load(id: string) {
+    const value = await api("/branches/" + id);
+    setBranch(id);
+    setW(value);
+  }
+  async function initialize() {
+    if (auth) {
+      const session = (await auth.auth.getSession()).data.session;
+      if (session) {
+        setEmail(session.user.email || "Staff");
+        const list: Branch[] = await api("/branches");
+        setBranches(list);
+        if (!list.length) throw Error("No owner or manager branch assigned.");
+        setRestaurant(list[0].restaurant);
+        await load(list[0].id);
+        signIn(false);
+        return;
+      }
+    }
+    if (dev && !auth) {
+      const { sample } = await import("./menu/fixtures");
+      setDemo(true);
+      setRestaurant("Saffron House");
+      setW(
+        JSON.parse(localStorage.getItem("tablelane.sample") || "null") ||
+          sample,
+      );
+      return;
+    }
+    signIn(true);
+  }
+  useEffect(() => {
+    initialize().catch((e) => {
+      note(e.message);
+      signIn(true);
+    });
+  }, []);
+  const base = "/branches/" + branch;
+  function update(value: Workspace) {
+    setW(value);
+    if (demo) localStorage.setItem("tablelane.sample", JSON.stringify(value));
+  }
+  async function action(fn: () => Promise<void>) {
+    note("");
+    wait(true);
+    try {
+      await fn();
+    } catch (e) {
+      note(e instanceof Error ? e.message : String(e));
+    } finally {
+      wait(false);
+    }
+  }
+  async function save(draft: Draft) {
+    if (!w) return;
+    let revision = w.revision + 1;
+    if (!demo)
+      revision = (
+        await api(base + "/draft", "PUT", { draft, revision: w.revision })
+      ).revision;
+    update({ ...w, draft, revision });
+    open("");
+    note("Draft saved.");
+  }
+  function navigate(t: string) {
+    setTab(t);
+    sidebar(false);
+    note("");
+    open("");
+  }
+  if (login)
+    return (
+      <main className="auth">
+        <Brand />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            action(async () => {
+              if (!auth)
+                throw Error(
+                  "Configure Supabase to sign in to a live workspace.",
+                );
+              const r = await auth.auth.signInWithPassword({
+                email: String(data.get("email")),
+                password: String(data.get("password")),
+              });
+              if (r.error) throw r.error;
+              await initialize();
+            });
+          }}
+        >
+          <h1>Staff sign-in</h1>
+          <label>
+            Email
+            <input name="email" type="email" required />
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" required />
+          </label>
+          <button className="primary" disabled={busy}>
+            Sign in
+          </button>
+          {msg && <p role="alert">{msg}</p>}
+        </form>
+      </main>
+    );
+  if (!w)
+    return (
+      <main className="auth">
+        <Brand />
+        <p>Loading workspace…</p>
+      </main>
+    );
+  const dishes = w.draft.dishes.filter((d) => !d.archived),
+    available = dishes.filter((d) => d.available).length;
+  const shown = dishes.filter(
+    (d) =>
+      d.name.toLowerCase().includes(search.toLowerCase()) &&
+      (cat === "All categories" || cat === d.category) &&
+      (status === "All statuses" || d.available === (status === "Available")),
+  );
+  const pages = Math.max(1, Math.ceil(shown.length / 8)),
+    current = Math.min(pages, page);
+  const newDish = () => {
+    edit(blank(w.draft.categories[0] || "Mains"));
+    open("Add dish");
+  };
+  async function setting(
+    fn: (f: FormData) => Promise<void>,
+    e: React.FormEvent<HTMLFormElement>,
+  ) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    await action(async () => {
+      await fn(f);
+      if (!demo) await load(branch);
+      open("");
+      note("Changes saved.");
+    });
+  }
+  const detail = dish && w.draft.dishes.find((d) => d.id === dish.id);
+  return (
+    <div className="app">
+      {side && (
+        <button
+          className="scrim"
+          aria-label="Close navigation"
+          onClick={() => sidebar(false)}
+        />
+      )}
+      <aside className={side ? "open" : ""}>
+        <Brand />
+        <button className="location" onClick={() => open("Select branch")}>
+          <span className="store">
+            <Store size={19} />
+          </span>
+          <span>
+            <b>{restaurant}</b>
+            <small>{w.name}</small>
+          </span>
+          <ChevronsUpDown size={14} />
+        </button>
+        <div className="navlabel">WORKSPACE</div>
+        <nav>
+          {links.slice(0, 4).map(([name, Icon]) => (
+            <button
+              key={name}
+              className={tab === name ? "selected" : ""}
+              onClick={() => navigate(name)}
+            >
+              <Icon />
+              {name}
+            </button>
+          ))}
+        </nav>
+        <div className="navlabel">MANAGEMENT</div>
+        <nav>
+          {links.slice(4).map(([name, Icon]) => (
+            <button
+              key={name}
+              className={tab === name ? "selected" : ""}
+              onClick={() => navigate(name)}
+            >
+              <Icon />
+              {name}
+            </button>
+          ))}
+        </nav>
+        <div className="sidefoot">
+          {dev && (
+            <button onClick={() => open("Development previews")}>
+              <Layers size={17} />
+              Development previews
+            </button>
+          )}
+          <div className="profile">
+            <span className="avatar">
+              {demo ? "AK" : email.slice(0, 2).toUpperCase()}
+            </span>
+            <div>
+              <b>{demo ? "Ayesha Khan" : email}</b>
+              <small>{demo ? "Demo workspace" : w.role}</small>
+            </div>
+            <button aria-label="Account" onClick={() => open("Account")}>
+              <ChevronsUpDown size={15} />
+            </button>
+          </div>
+        </div>
+      </aside>
+      <div className="body">
+        <header>
+          <button
+            className="burger"
+            onClick={() => sidebar(true)}
+            aria-label="Open navigation"
+          >
+            <Menu />
+          </button>
+          <span className="bread">
+            <LayoutGrid size={15} /> Workspace <ChevronRight size={13} />{" "}
+            <b>{tab}</b>
+          </span>
+          <button className="branch" onClick={() => open("Select branch")}>
+            <MapPin size={15} />
+            {w.name}
+            <ChevronDown size={14} />
+          </button>
+        </header>
+        <main className="content">
+          <div className="pagehead">
+            <div>
+              <div className="eyebrow">
+                <span /> RESTAURANT WORKSPACE
+              </div>
+              <h1>{tab}</h1>
+              <p>{words[tab]}</p>
+            </div>
+            {tab === "Menu manager" && (
+              <button className="primary" onClick={() => open("Publish menu")}>
+                <Send size={16} />
+                Publish menu
+              </button>
+            )}
+          </div>
+          {msg && !modal && (
+            <div className="notice" role="status">
+              {msg}
+              <button onClick={() => note("")} aria-label="Dismiss message">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {tab === "Menu manager" ? (
+            <>
+              <section className="hero">
+                <div className="heroText">
+                  <div className="heroTag">
+                    <BookOpen size={13} /> MENU COLLECTION
+                  </div>
+                  <h2>The House Menu</h2>
+                  <p>
+                    <Store size={14} />
+                    {restaurant}
+                    <i /> {w.name}
+                  </p>
+                  <button onClick={() => open("Menu preview")}>
+                    <Eye size={15} />
+                    Preview menu
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className="heroPhoto">
+                  {demo || dishes.find((d) => d.photo) ? (
+                    <img
+                      src={
+                        demo
+                          ? "/food/karahi.jpg"
+                          : dishes.find((d) => d.photo)?.photo
+                      }
+                      alt="House menu specialty"
+                    />
+                  ) : (
+                    <CookingPot size={72} />
+                  )}
+                </div>
+              </section>
+              <div className="stats">
+                {[
+                  [Utensils, "Total dishes", dishes.length, "sage"],
+                  [Layers, "Categories", w.draft.categories.length, "sand"],
+                  [Check, "Available", available, "green"],
+                  [CookingPot, "Sold out", dishes.length - available, "rose"],
+                ].map(([I, title, num, color]) => {
+                  const Icon = I as typeof Utensils;
+                  return (
+                    <div className="stat" key={String(title)}>
+                      <span className={"statIcon " + color}>
+                        <Icon size={19} />
+                      </span>
+                      <div>
+                        <small>{String(title)}</small>
+                        <strong>{String(num).padStart(2, "0")}</strong>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <section className="catalog">
+                <div className="catalogHead">
+                  <div>
+                    <h2>Menu items</h2>
+                    <small>{dishes.length} dishes in your menu</small>
+                  </div>
+                  <div className="actions">
+                    <button onClick={() => navigate("Menu imports")}>
+                      <Upload size={15} />
+                      Import menu
+                    </button>
+                    <button className="primary" onClick={newDish}>
+                      <Plus size={16} />
+                      Add dish
+                    </button>
+                  </div>
+                </div>
+                <div className="tools">
+                  <div className="search">
+                    <Search size={16} />
+                    <input
+                      placeholder="Search dishes..."
+                      aria-label="Search dishes"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        paginate(1);
+                      }}
+                    />
+                  </div>
+                  <select
+                    aria-label="Filter category"
+                    value={cat}
+                    onChange={(e) => setCat(e.target.value)}
+                  >
+                    {["All categories", ...w.draft.categories].map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                  <button
+                    className={filter ? "active" : ""}
+                    onClick={() => filters(!filter)}
+                  >
+                    <SlidersHorizontal size={14} />
+                    Filters
+                  </button>
+                  <div className="viewModes">
+                    <button
+                      className={!grid ? "on" : ""}
+                      aria-label="List view"
+                      onClick={() => setGrid(false)}
+                    >
+                      <List size={16} />
+                    </button>
+                    <button
+                      className={grid ? "on" : ""}
+                      aria-label="Grid view"
+                      onClick={() => setGrid(true)}
+                    >
+                      <Grid2X2 size={15} />
+                    </button>
+                  </div>
+                </div>
+                {filter && (
+                  <div className="chips">
+                    {["All statuses", "Available", "Sold out"].map((s) => (
+                      <button
+                        key={s}
+                        className={s === status ? "active" : ""}
+                        onClick={() => setStatus(s)}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                    <button onClick={() => open("Manage categories")}>
+                      Manage categories
+                    </button>
+                  </div>
+                )}
+                <div className={grid ? "dishgrid" : "dishlist"}>
+                  {!grid && (
+                    <div className="thead">
+                      <span>Dish name</span>
+                      <span>Category</span>
+                      <span>Price</span>
+                      <span>Status</span>
+                      <span />
+                    </div>
+                  )}
+                  {shown.slice((current - 1) * 8, current * 8).map((d) => (
+                    <div className="dishrow" key={d.id}>
+                      <button
+                        className="itemname"
+                        onClick={() => {
+                          edit(d);
+                          open("Edit dish");
+                        }}
+                      >
+                        {d.photo ? (
+                          <img alt="" src={d.photo} />
+                        ) : (
+                          <span className="noimage">
+                            <Utensils />
+                          </span>
+                        )}
+                        <span>
+                          <strong>{d.name}</strong>
+                          <small>{d.description || d.station}</small>
+                        </span>
+                      </button>
+                      <span>
+                        <em
+                          className={
+                            "category c" +
+                            (w.draft.categories.indexOf(d.category) % 5)
+                          }
+                        >
+                          {d.category}
+                        </em>
+                      </span>
+                      <span className="price">
+                        <small>{w.currency} </small>
+                        {d.portions[0].price?.toLocaleString() ?? "Review"}
+                      </span>
+                      <button
+                        title="Toggle availability"
+                        className={"status " + (d.available ? "yes" : "no")}
+                        onClick={() =>
+                          action(() =>
+                            save({
+                              ...w.draft,
+                              dishes: w.draft.dishes.map((x) =>
+                                x.id === d.id
+                                  ? { ...x, available: !x.available }
+                                  : x,
+                              ),
+                            }),
+                          )
+                        }
+                      >
+                        <i />
+                        {d.available ? "Available" : "Sold out"}
+                      </button>
+                      <button
+                        className="more"
+                        aria-label={"Options for " + d.name}
+                        onClick={() => {
+                          edit(d);
+                          open("Dish options");
+                        }}
+                      >
+                        <Ellipsis size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {!shown.length && <p className="empty">No dishes found.</p>}
+                <footer>
+                  <small>
+                    {shown.length
+                      ? (current - 1) * 8 +
+                        1 +
+                        "–" +
+                        Math.min(current * 8, shown.length)
+                      : 0}{" "}
+                    of {shown.length} dishes
+                  </small>
+                  <div>
+                    <button
+                      disabled={current <= 1}
+                      aria-label="Previous page"
+                      onClick={() => paginate(current - 1)}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <button
+                      disabled={current >= pages}
+                      aria-label="Next page"
+                      onClick={() => paginate(current + 1)}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </footer>
+              </section>
+            </>
+          ) : (
+            <section className="panel">
+              {tab === "Menu imports" && (
+                <ImportPanel
+                  base={base}
+                  preview={demo}
+                  draft={w.draft}
+                  apply={save}
+                />
+              )}
+              {tab === "Tables & QR" && (
+                <>
+                  <button className="primary" onClick={() => open("Add table")}>
+                    <Plus size={15} />
+                    Add table
+                  </button>
+                  {w.tables.map((t) => (
+                    <TableQR key={t.id} {...t} preview={demo} />
+                  ))}
+                </>
+              )}
+              {tab === "Kitchen stations" && (
+                <KitchenStations
+                  stations={w.stations}
+                  add={() => open("Add station")}
+                />
+              )}
+              {tab === "Staff members" && (
+                <StaffMembers
+                  w={w}
+                  assign={(id, role) =>
+                    action(async () => {
+                      await api(base + "/staff/" + id, "PUT", { role });
+                      await load(branch);
+                    })
+                  }
+                  invite={() => open("Invite staff")}
+                />
+              )}
+              {tab === "Settings" && (
+                <BranchSettings
+                  restaurant={restaurant}
+                  rename={() => open("Restaurant name")}
+                  w={w}
+                  onCreate={() => open("Create branch")}
+                  onSave={(e) =>
+                    setting(async (f) => {
+                      const v = {
+                        name: String(f.get("name")),
+                        hours: String(f.get("hours")),
+                        currency: String(f.get("currency")),
+                        stations: w.stations,
+                      };
+                      if (demo) update({ ...w, ...v });
+                      else await api(base + "/settings", "PUT", v);
+                    }, e)
+                  }
+                />
+              )}
+            </section>
+          )}
+        </main>
+      </div>
+      <dialog ref={dialog} onCancel={() => open("")}>
+        <div className="dialoghead">
+          <h2>{modal}</h2>
+          <button aria-label="Close" onClick={() => open("")}>
+            <X size={18} />
+          </button>
+        </div>
+        {msg && <p role="status">{msg}</p>}
+        {["Add dish", "Edit dish"].includes(modal) && dish && (
+          <DishEditor
+            initial={dish}
+            categories={w.draft.categories}
+            stations={w.stations}
+            onSave={(d) =>
+              action(() =>
+                save({
+                  categories: [...new Set([...w.draft.categories, d.category])],
+                  dishes: detail
+                    ? w.draft.dishes.map((x) => (x.id === d.id ? d : x))
+                    : [...w.draft.dishes, d],
+                }),
+              )
+            }
+          />
+        )}
+        {modal === "Dish options" && detail && (
+          <div className="optionlist">
+            <button onClick={() => open("Edit dish")}>Edit dish</button>
+            <label>
+              Display position
+              <select
+                value={w.draft.dishes.indexOf(detail)}
+                onChange={(e) => {
+                  const list = w.draft.dishes.filter((d) => d.id !== detail.id);
+                  list.splice(+e.target.value, 0, detail);
+                  action(() => save({ ...w.draft, dishes: list }));
+                }}
+              >
+                {w.draft.dishes.map((d, i) => (
+                  <option key={d.id} value={i}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              onClick={() =>
+                action(() =>
+                  save({
+                    ...w.draft,
+                    dishes: w.draft.dishes.map((d) =>
+                      d.id === detail.id ? { ...d, archived: true } : d,
+                    ),
+                  }),
+                )
+              }
+            >
+              Archive dish
+            </button>
+          </div>
+        )}
+        {modal === "Manage categories" && (
+          <CategoryEditor draft={w.draft} save={save} />
+        )}
+        {modal === "Menu preview" && (
+          <MenuView
+            menu={{
+              ...w.draft,
+              restaurant,
+              branch: w.name,
+              table: "Draft preview",
+              currency: w.currency,
+            }}
+          />
+        )}
+        {modal === "Publish menu" && (
+          <>
+            <p>
+              {demo
+                ? "Preview publication in this demo workspace."
+                : "Update all table menus with this draft."}
+            </p>
+            <div className="record">
+              {dishes.length} dishes · {w.draft.categories.length} categories
+            </div>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() =>
+                action(async () => {
+                  if (!demo)
+                    await api(base + "/publish", "POST", {
+                      revision: w.revision,
+                    });
+                  else if (
+                    !dishes.length ||
+                    dishes.some((d) => d.portions.some((p) => p.price === null))
+                  )
+                    throw Error("Review missing prices before publishing");
+                  update({ ...w, live: true });
+                  open("");
+                  note(
+                    demo
+                      ? "Publication preview complete."
+                      : "Menu published to all tables.",
+                  );
+                })
+              }
+            >
+              {demo ? "Test publication" : "Publish menu"}
+            </button>
+          </>
+        )}
+        {modal === "Select branch" &&
+          (demo ? (
+            <p>
+              {restaurant} · {w.name}
+            </p>
+          ) : (
+            branches.map((b) => (
+              <button
+                key={b.id}
+                onClick={() =>
+                  action(async () => {
+                    await load(b.id);
+                    setRestaurant(b.restaurant);
+                    open("");
+                  })
+                }
+              >
+                {b.restaurant} · {b.name}
+              </button>
+            ))
+          ))}
+        {[
+          "Add table",
+          "Add station",
+          "Invite staff",
+          "Create branch",
+          "Restaurant name",
+        ].includes(modal) && (
+          <form
+            onSubmit={(e) =>
+              setting(async (f) => {
+                const name = String(f.get("name")),
+                  role = String(f.get("role"));
+                if (modal === "Restaurant name") {
+                  if (!demo) await api(base + "/restaurant", "PUT", { name });
+                  setRestaurant(name);
+                }
+                if (modal === "Add table") {
+                  if (demo)
+                    update({
+                      ...w,
+                      tables: [
+                        ...w.tables,
+                        { id: crypto.randomUUID(), label: name },
+                      ],
+                    });
+                  else await api(base + "/tables", "POST", { name });
+                }
+                if (modal === "Add station") {
+                  const stations = [...new Set([...w.stations, name])];
+                  if (demo) update({ ...w, stations });
+                  else
+                    await api(base + "/settings", "PUT", {
+                      name: w.name,
+                      currency: w.currency,
+                      hours: w.hours,
+                      stations,
+                    });
+                }
+                if (modal === "Invite staff") {
+                  if (demo) throw Error("Sign in to send staff invitations.");
+                  await api(base + "/staff", "POST", { email: name, role });
+                }
+                if (modal === "Create branch") {
+                  if (demo) throw Error("Sign in to create a branch.");
+                  await api(base + "/branches", "POST", { name });
+                  setBranches(await api("/branches"));
+                }
+              }, e)
+            }
+          >
+            <label>
+              {modal === "Invite staff" ? "Email" : "Name"}
+              <input
+                required
+                type={modal === "Invite staff" ? "email" : "text"}
+                name="name"
+              />
+            </label>
+            {modal === "Invite staff" && (
+              <label>
+                Branch role
+                <select name="role">
+                  {["manager", "waiter", "cook", "cashier"].map((r) => (
+                    <option key={r}>{r}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <button disabled={busy} className="primary">
+              {modal}
+            </button>
+          </form>
+        )}
+        {modal === "Development previews" && (
+          <div className="optionlist">
+            {[
+              "table-ordering",
+              "waiter-floor",
+              "kitchen-display",
+              "guest-tracker",
+              "billing",
+              "reports",
+              "guest-experience",
+            ].map((m) => (
+              <a key={m} href={"/preview/" + m}>
+                {m.replaceAll("-", " ")}
+                <ExternalLink size={14} />
+              </a>
+            ))}
+          </div>
+        )}
+        {modal === "Account" && !demo && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              action(async () => {
+                const r = await auth!.auth.updateUser({
+                  password: String(f.get("password")),
+                });
+                if (r.error) throw r.error;
+                open("");
+                note("Password updated.");
+              });
+            }}
+          >
+            <label>
+              New password
+              <input
+                name="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                type="password"
+              />
+            </label>
+            <button>Set password</button>
+          </form>
+        )}
+        {modal === "Account" && (
+          <button
+            onClick={async () => {
+              await auth?.auth.signOut();
+              setW(undefined);
+              setDemo(false);
+              open("");
+              signIn(true);
+            }}
+          >
+            <LogOut size={15} />
+            {demo ? "Open staff sign-in" : "Sign out"}
+          </button>
+        )}
+      </dialog>
+    </div>
+  );
 }

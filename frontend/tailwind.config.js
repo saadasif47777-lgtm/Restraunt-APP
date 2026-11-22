@@ -1,1 +1,1 @@
-module.exports={content:['./src/**/*.{ts,tsx}'],theme:{extend:{}}}
+module.exports = { content: ["./src/**/*.{ts,tsx}"], theme: { extend: {} } };
