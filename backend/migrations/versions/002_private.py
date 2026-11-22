@@ -8,10 +8,14 @@ tables = ["restaurants", "branches", "members", "dining_tables", "import_jobs"]
 
 
 def upgrade():
+    if op.get_bind().dialect.name != "postgresql":
+        return
     for table in tables:
         op.execute(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY')
 
 
 def downgrade():
+    if op.get_bind().dialect.name != "postgresql":
+        return
     for table in tables:
         op.execute(f'ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY')

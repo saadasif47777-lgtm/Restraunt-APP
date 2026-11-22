@@ -1,41 +1,30 @@
-import argparse
-from uuid import UUID
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from app.core.db import engine
-from app.modules.admin_workspace.models import Branch, Member, Restaurant
+"""Migrate and seed the persistent test workspace. Run from backend."""
+
+from alembic import command
+from alembic.config import Config
+from sqlalchemy.dialects.sqlite import insert
+from app.core.db import ROOT, UPLOAD_DIR, engine
+from app.modules.admin_workspace.models import Branch, Restaurant
+from app.modules.admin_workspace.workspace import RESTAURANT_ID, FIRST_BRANCH_ID
+
+
+def setup():
+    config = Config(str(ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(ROOT / "migrations"))
+    command.upgrade(config, "head")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    with engine.begin() as conn:
+        conn.execute(
+            insert(Restaurant)
+            .values(id=RESTAURANT_ID, name="Test Restaurant")
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        conn.execute(
+            insert(Branch)
+            .values(id=FIRST_BRANCH_ID, restaurant_id=RESTAURANT_ID, name="Main")
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    for arg in ["subject", "restaurant", "branch", "email"]:
-        p.add_argument("--" + arg, required=True)
-    args = p.parse_args()
-    with Session(engine) as db, db.begin():
-        subject = str(UUID(args.subject))
-        existing = db.scalar(
-            select(Member)
-            .join(Branch, Member.branch == Branch.id)
-            .join(Restaurant, Branch.restaurant == Restaurant.id)
-            .where(
-                Member.subject == subject,
-                Member.role == "owner",
-                Restaurant.name == args.restaurant,
-                Branch.name == args.branch,
-            )
-        )
-        if existing:
-            raise SystemExit("Owner already configured for this branch.")
-        r = Restaurant(name=args.restaurant)
-        db.add(r)
-        db.flush()
-        b = Branch(restaurant=r.id, name=args.branch)
-        db.add(b)
-        db.flush()
-        db.add(
-            Member(
-                subject=str(UUID(args.subject)),
-                branch=b.id,
-                role="owner",
-                email=args.email,
-            )
-        )
+    setup()

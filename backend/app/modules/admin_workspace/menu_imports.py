@@ -6,7 +6,6 @@ import socket
 import time
 from urllib.parse import urlsplit, urljoin
 import pymupdf as fitz
-import httpx
 import urllib3
 import zxingcpp
 from bs4 import BeautifulSoup
@@ -15,8 +14,9 @@ from google.cloud import vision
 from google.auth.exceptions import DefaultCredentialsError
 from PIL import Image
 from sqlalchemy import select
-from app.core.supabase import admin_headers, project_url
-from .menu_routes import Db, User, authorize
+from .files import file_path, write_file
+from .workspace import active_branch
+from .menu_routes import Db
 from .models import ImportJob, uid
 
 router = APIRouter(prefix="/branches/{branch}/imports")
@@ -83,28 +83,6 @@ def fetch_public(url):
     raise ValueError("Too many redirects. Upload screenshots instead.")
 
 
-def storage(method, path, body=None, mime=None):
-    headers = admin_headers()
-    if mime:
-        headers["Content-Type"] = mime
-    r = httpx.request(
-        method,
-        project_url()
-        + "/storage/v1/object/"
-        + os.environ.get("MENU_BUCKET", "menu-originals")
-        + "/"
-        + path,
-        headers=headers,
-        content=body,
-        timeout=25,
-    )
-    if r.is_error:
-        raise ValueError(
-            "Private menu storage unavailable. Check bucket and credentials."
-        )
-    return r.content
-
-
 def kind(data):
     if data.startswith(b"%PDF-"):
         with fitz.open(stream=data, filetype="pdf") as pdf:
@@ -125,12 +103,11 @@ def kind(data):
 def submit(
     branch: str,
     db: Db,
-    user: User,
     files: list[UploadFile] = File(default=[]),
     url: str = Form(""),
     qr: bool = Form(False),
 ):
-    authorize(db, user, branch)
+    active_branch(db, branch)
     if bool(files) == bool(url) or len(files) > MAX_PAGES:
         raise HTTPException(422, "Select up to 12 files or enter a menu link.")
     sources = []
@@ -149,27 +126,26 @@ def submit(
             if count > MAX_PAGES:
                 raise ValueError("Limit each import to 12 pages.")
             f.file.seek(0)
-            sources.append(dict(path=branch + "/" + uid(), mime=mime, qr=qr))
+            sources.append(dict(branch=branch, file_id=uid(), mime=mime, qr=qr))
         for f, source in zip(files, sources):
-            path = source["path"]
-            mime = source["mime"]
+            path = file_path("originals", branch, source["file_id"])
             data = f.file.read(LIMIT)
-            storage("POST", path, data, mime)
+            write_file(path, data)
 
         if url:
             sources.append({"url": url})
     except (ValueError, OSError, RuntimeError, Image.DecompressionBombError) as e:
         raise HTTPException(422, str(e))
-    job = ImportJob(branch=branch, sources=sources)
+    job = ImportJob(branch_id=branch, sources=sources)
     db.add(job)
     db.commit()
     return {"id": job.id}
 
 
-def check_job(branch, job_id, db, user):
-    authorize(db, user, branch)
+def check_job(branch, job_id, db):
+    active_branch(db, branch)
     job = db.scalar(
-        select(ImportJob).where(ImportJob.id == job_id, ImportJob.branch == branch)
+        select(ImportJob).where(ImportJob.id == job_id, ImportJob.branch_id == branch)
     )
     if not job:
         raise HTTPException(404, "Import not found")
@@ -177,8 +153,8 @@ def check_job(branch, job_id, db, user):
 
 
 @router.get("")
-def jobs(branch: str, db: Db, user: User):
-    authorize(db, user, branch)
+def jobs(branch: str, db: Db):
+    active_branch(db, branch)
     return [
         dict(
             id=j.id,
@@ -187,26 +163,26 @@ def jobs(branch: str, db: Db, user: User):
             pages=j.pages,
             sources=len(j.sources),
         )
-        for j in db.scalars(select(ImportJob).where(ImportJob.branch == branch))
+        for j in db.scalars(select(ImportJob).where(ImportJob.branch_id == branch))
     ]
 
 
 @router.get("/{job_id}/source/{index}")
-def original(branch: str, job_id: str, index: int, db: Db, user: User):
-    j = check_job(branch, job_id, db, user)
-    if not 0 <= index < len(j.sources) or "path" not in j.sources[index]:
+def original(branch: str, job_id: str, index: int, db: Db):
+    j = check_job(branch, job_id, db)
+    if not 0 <= index < len(j.sources) or "file_id" not in j.sources[index]:
         raise HTTPException(404, "No uploaded original")
     s = j.sources[index]
     return Response(
-        storage("GET", s["path"]),
+        file_path("originals", branch, s["file_id"]).read_bytes(),
         media_type=s["mime"],
         headers={"Cache-Control": "private, no-store"},
     )
 
 
 @router.post("/{job_id}/retry")
-def retry(branch: str, job_id: str, db: Db, user: User):
-    j = check_job(branch, job_id, db, user)
+def retry(branch: str, job_id: str, db: Db):
+    j = check_job(branch, job_id, db)
     if j.status != "failed":
         raise HTTPException(409, "Only failed imports can retry")
     j.status = "queued"
@@ -250,8 +226,8 @@ def ocr(data):
 def pages(source, skip):
     url = source.get("url")
     data = b""
-    if "path" in source:
-        data = storage("GET", source["path"])
+    if "file_id" in source:
+        data = file_path("originals", source["branch"], source["file_id"]).read_bytes()
         if source.get("qr"):
             codes = zxingcpp.read_barcodes(Image.open(io.BytesIO(data)))
             if not codes:
