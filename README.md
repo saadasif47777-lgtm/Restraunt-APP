@@ -62,7 +62,7 @@ $env:WORKSPACE_MODE = "private"
 npm run dev
 ```
 
-Open **http://127.0.0.1:3000** on the manager's computer. The workspace opens directly. `PRIVATE_API_ORIGIN` and `PUBLIC_API_ORIGIN` in the frontend example point to the two local APIs. Next.js forwards same-origin browser requests to those services. The guest frontend serves individual `/menu/<table-id>` links; its root returns 404.
+Open **http://127.0.0.1:3000** on the manager's computer. The workspace opens directly. `PRIVATE_API_ORIGIN` and `PUBLIC_API_ORIGIN` in the frontend example point to the two local APIs. Next.js forwards same-origin browser requests to those services. The guest homepage explains how to open a table menu. Each printed QR links directly to its table at `/menu/<table-id>`.
 
 ## Imports, photos and publication
 

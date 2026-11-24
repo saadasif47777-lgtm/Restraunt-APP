@@ -114,12 +114,15 @@ test("manager publishes a private draft and updates the same table QR", async ({
   expect((await request.get(original)).headers()["content-type"]).toContain(
     "application/pdf",
   );
-  for (const path of [
-    "/",
-    original,
-    "/api/branches",
-    "/preview/table-ordering",
-  ])
+  const guestHome = await page.context().newPage();
+  expect((await guestHome.goto("http://127.0.0.1:3012/"))?.status()).toBe(200);
+  await expect(
+    guestHome.getByRole("heading", { name: "Open your table menu" }),
+  ).toBeVisible();
+  await expect(
+    guestHome.getByRole("button", { name: "Publish menu" }),
+  ).toHaveCount(0);
+  for (const path of [original, "/api/branches", "/preview/table-ordering"])
     expect((await request.get("http://127.0.0.1:3012" + path)).status()).toBe(
       404,
     );
