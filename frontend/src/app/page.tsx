@@ -1,7 +1,10 @@
-import { notFound } from "next/navigation";
 import AdminWorkspaceScreen from "@/modules/admin-workspace/AdminWorkspaceScreen";
+import GuestMenuEntry from "@/modules/customer-menu/GuestMenuEntry";
 export const dynamic = "force-dynamic";
 export default function Page() {
-  if (process.env.WORKSPACE_MODE !== "private") notFound();
-  return <AdminWorkspaceScreen />;
+  return process.env.WORKSPACE_MODE === "private" ? (
+    <AdminWorkspaceScreen />
+  ) : (
+    <GuestMenuEntry />
+  );
 }
